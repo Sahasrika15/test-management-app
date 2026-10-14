@@ -1,0 +1,3 @@
+test_case_id,test_case_name,page,steps,expected_result,enabled
+APX001,Home page after login,/home,Check that TIMESHEET is displayed,Timesheet menu is visible,Yes
+APX002,Timesheet page has Save Sheet button,/timesheet-copy,Check that Save Sheet is displayed,Save button is visible,Yes
