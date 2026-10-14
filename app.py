@@ -1,5 +1,8 @@
 import pandas as pd
 import streamlit as st
+from core.csv_import import validate_csv_text
+from core.importer import import_csv_text
+from core.test_cases import list_test_cases, set_enabled
 
 st.set_page_config(page_title="Test management", layout="wide")
 
@@ -163,28 +166,43 @@ with tab_upload:
         )
         uploaded = st.file_uploader("Choose a CSV file", type="csv")
         if uploaded is not None:
-            preview = pd.read_csv(uploaded)
-            st.markdown(
-                f'<p class="tm-hint">{len(preview)} rows read. '
-                "Validation is added in a later stage.</p>",
-                unsafe_allow_html=True,
-            )
-            st.dataframe(preview, hide_index=True, use_container_width=True)
-            st.button("Confirm import", disabled=True, help="Enabled in a later stage")
+            content = uploaded.getvalue().decode("utf-8-sig")
+            result = validate_csv_text(content)
+            if result.ok:
+                st.success(f"{len(result.rows)} valid rows. Ready to import.")
+                st.dataframe(pd.DataFrame(result.rows), hide_index=True, use_container_width=True)
+                if st.button("Confirm import"):
+                    _, saved = import_csv_text(content)
+                    st.success(f"Saved {saved} test case(s).")
+            else:
+                st.error("Nothing was saved. Fix these rows and upload again:")
+                for error in result.errors:
+                    st.markdown(f"- {error}")
 
 with tab_cases:
     with st.container(border=True):
         st.markdown('<p class="tm-section">Test cases</p>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="tm-hint">Turn test cases on or off. Changes are not saved yet.</p>',
+            '<p class="tm-hint">Turn a test case on or off. The change saves immediately.</p>',
             unsafe_allow_html=True,
         )
-        st.data_editor(
-            SAMPLE_CASES,
-            disabled=["Test case ID", "Name", "Page", "Steps", "Expected result"],
-            hide_index=True,
-            use_container_width=True,
-        )
+        cases = list_test_cases()
+        if not cases:
+            st.info("No test cases yet. Upload a CSV in the Upload CSV tab.")
+        else:
+            table = pd.DataFrame(cases)
+            edited = st.data_editor(
+                table,
+                disabled=["test_case_id", "test_case_name", "page", "steps", "expected_result"],
+                hide_index=True,
+                use_container_width=True,
+                key="cases_editor",
+            )
+            for _, row in edited.iterrows():
+                original = table.loc[table["test_case_id"] == row["test_case_id"], "enabled"].iloc[0]
+                if bool(row["enabled"]) != bool(original):
+                    set_enabled(row["test_case_id"], bool(row["enabled"]))
+                    st.rerun()
 
 with tab_run:
     with st.container(border=True):
