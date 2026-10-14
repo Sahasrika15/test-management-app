@@ -116,3 +116,16 @@ def finish_run(run_id):
     """)
     with get_engine().begin() as conn:
         conn.execute(sql, {"run_id": run_id})
+
+def get_run_results(run_id):
+    """Return every test result for one run, with the test case name."""
+    sql = text("""
+        select t.test_case_id, t.test_case_name, r.status, r.failed_step,
+               r.error_message, r.duration_ms, r.video_path
+        from test_results r
+        join test_cases t on t.id = r.test_case_id
+        where r.execution_id = :run_id
+        order by t.test_case_id
+    """)
+    with get_engine().connect() as conn:
+        return [dict(row) for row in conn.execute(sql, {"run_id": run_id}).mappings()]

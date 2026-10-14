@@ -28,10 +28,9 @@ def perform(page, step):
         page.get_by_label(parsed["field"], exact=True).select_option(parsed["value"], timeout=TIMEOUT_MS)
     elif action in ("check_text", "wait_for"):
         page.get_by_text(parsed["text"]).first.wait_for(state="visible", timeout=TIMEOUT_MS)
-    # open_page needs no action: the page is opened before the steps run
 
 
-def run_test(browser, base_url, row):
+def run_test(browser, base_url, run_id, row):
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     context = browser.new_context(
         record_video_dir=str(VIDEO_DIR),
@@ -58,10 +57,16 @@ def run_test(browser, base_url, row):
                 break
 
     context.close()
-    video_path = video.path() if video else None
+    video_path = None
+    if video:
+        target = VIDEO_DIR / f"run{run_id}_{row['test_case_id']}.webm"
+        video.save_as(str(target))
+        video.delete()
+        video_path = str(target)
+
     duration_ms = int((time.time() - started) * 1000)
     status = "failed" if error else "passed"
-    return status, failed_step, error, (str(video_path) if video_path else None), duration_ms
+    return status, failed_step, error, video_path, duration_ms
 
 
 def process_all_queued_runs():
@@ -76,7 +81,9 @@ def process_all_queued_runs():
             browser = p.chromium.launch(headless=True)
             try:
                 for row in rows:
-                    status, failed_step, error, video, duration = run_test(browser, run["app_url"], row)
+                    status, failed_step, error, video, duration = run_test(
+                        browser, run["app_url"], run["id"], row
+                    )
                     save_result(row["id"], status, failed_step, error, video, duration)
                     line = f"  {row['test_case_id']}  {status}  {duration} ms"
                     print(line + (f"  {error}" if error else ""))

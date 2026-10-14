@@ -4,6 +4,10 @@ from core.csv_import import validate_csv_text
 from core.importer import import_csv_text
 from core.runs import create_run
 from core.test_cases import list_test_cases, set_enabled
+from pathlib import Path
+import subprocess
+import sys
+from core.runs import create_run, get_run_results, list_runs
 
 st.set_page_config(page_title="Test management", layout="wide")
 
@@ -121,7 +125,9 @@ def metric_card(label, value, variant=""):
 def status_style(value):
     if value == "Passed":
         return f"background-color: {GOLD_SOFT}; color: {NAVY}; font-weight: 600;"
-    return f"background-color: {BRICK_SOFT}; color: {BRICK}; font-weight: 600;"
+    if value == "Failed":
+        return f"background-color: {BRICK_SOFT}; color: {BRICK}; font-weight: 600;"
+    return f"color: {MUTED};"
 
 
 st.markdown(
@@ -218,18 +224,52 @@ with tab_run:
             if st.button("Start run"):
                 try:
                     run_id, queued = create_run(app_url, selected)
-                    st.success(f"Run {run_id} created with {queued} queued test(s).")
+                    subprocess.Popen(
+                        [sys.executable, "-m", "worker.runner"],
+                        cwd=str(Path(__file__).parent),
+                        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+                    )
+                    st.success(
+                        f"Run {run_id} started with {queued} test(s). "
+                        "Open the Reports tab to see results as they finish."
+                    )
                 except ValueError as error:
                     st.error(str(error))
 
 with tab_reports:
     with st.container(border=True):
-        st.markdown('<p class="tm-section">Last run report</p>', unsafe_allow_html=True)
-        st.selectbox("Run", ["Run 1 (sample)"])
-        styled = SAMPLE_RESULTS.style.map(status_style, subset=["Status"])
-        st.dataframe(styled, hide_index=True, use_container_width=True)
-        chosen = st.selectbox("Test case video", SAMPLE_RESULTS["Test case ID"].tolist())
-        st.markdown(
-            f'<p class="tm-hint">The video for {chosen} appears here once the worker records runs.</p>',
-            unsafe_allow_html=True,
-        )
+        st.markdown('<p class="tm-section">Run report</p>', unsafe_allow_html=True)
+        runs = [r for r in list_runs() if r["total"] > 0]
+        if not runs:
+            st.info("No runs yet. Start one from the Start run tab.")
+        else:
+            labels = {r["id"]: f"Run {r['id']}  {r['app_url']}  ({r['status']})" for r in runs}
+            run_id = st.selectbox("Run", list(labels), format_func=lambda i: labels[i])
+            results = get_run_results(run_id)
+            df = pd.DataFrame([
+                {
+                    "Test case ID": r["test_case_id"],
+                    "Name": r["test_case_name"],
+                    "Status": r["status"].capitalize(),
+                    "Failed step": "" if r["failed_step"] is None else str(r["failed_step"]),
+                    "Error": r["error_message"] or "",
+                    "Duration (s)": round((r["duration_ms"] or 0) / 1000, 2),
+                }
+                for r in results
+            ])
+            styled = df.style.map(status_style, subset=["Status"]).format({"Duration (s)": "{:.2f}"})
+            st.dataframe(styled, hide_index=True, width="stretch")
+
+            playable = [r for r in results if r["video_path"]]
+            if playable:
+                choice = st.selectbox("Test case video", [r["test_case_id"] for r in playable])
+                chosen = next(r for r in playable if r["test_case_id"] == choice)
+                if Path(chosen["video_path"]).exists():
+                    st.video(chosen["video_path"])
+                else:
+                    st.warning("The video file for this test isn't on this machine.")
+            else:
+                st.markdown(
+                    '<p class="tm-hint">No videos for this run yet.</p>',
+                    unsafe_allow_html=True,
+                )
