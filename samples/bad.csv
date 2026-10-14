@@ -1,0 +1,5 @@
+test_case_id,test_case_name,page,steps,expected_result,enabled
+TC001,Timesheet week navigation,/timesheet,Click the Next week button,Next week is displayed,Yes
+TC002,Validate hours over 24,/timesheet,Press save,Validation error is displayed,Yes
+TC003,Save timesheet,timesheet,Enter 8 in the Hours field; Click the Save button,Timesheet saves successfully,Maybe
+TC001,Duplicate row,/timesheet,Open the page,Page opens,No
