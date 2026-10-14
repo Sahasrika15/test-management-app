@@ -1,5 +1,4 @@
 from sqlalchemy import text
-
 from db.connection import get_engine
 
 
@@ -118,10 +117,10 @@ def finish_run(run_id):
         conn.execute(sql, {"run_id": run_id})
 
 def get_run_results(run_id):
-    """Return every test result for one run, with the test case name."""
+    """Return every test result for one run, with the expected result and video path."""
     sql = text("""
-        select t.test_case_id, t.test_case_name, r.status, r.failed_step,
-               r.error_message, r.duration_ms, r.video_path
+        select t.test_case_id, t.test_case_name, t.expected_result,
+               r.status, r.failed_step, r.error_message, r.duration_ms, r.video_path
         from test_results r
         join test_cases t on t.id = r.test_case_id
         where r.execution_id = :run_id
@@ -129,3 +128,45 @@ def get_run_results(run_id):
     """)
     with get_engine().connect() as conn:
         return [dict(row) for row in conn.execute(sql, {"run_id": run_id}).mappings()]
+
+def get_dashboard_stats():
+    """Summary numbers, recent run trend, and latest failures for the Dashboard."""
+    totals_sql = text("""
+        select
+            (select count(*) from test_cases) as total_cases,
+            (select count(*) from test_cases where enabled) as enabled_cases,
+            (select count(*) from executions) as total_runs,
+            (select count(*) from test_results where status = 'passed') as passed,
+            (select count(*) from test_results where status = 'failed') as failed,
+            (select coalesce(avg(duration_ms), 0) from test_results
+              where status in ('passed', 'failed')) as avg_ms
+    """)
+    trend_sql = text("""
+        select e.id as run_id, e.app_url, e.created_at,
+               count(r.id) filter (where r.status = 'passed') as passed,
+               count(r.id) filter (where r.status = 'failed') as failed
+        from executions e
+        left join test_results r on r.execution_id = e.id
+        group by e.id, e.app_url, e.created_at
+        order by e.id desc
+        limit 10
+    """)
+    failures_sql = text("""
+        select e.id as run_id, t.test_case_id, t.test_case_name,
+               r.failed_step, r.error_message, e.created_at
+        from test_results r
+        join test_cases t on t.id = r.test_case_id
+        join executions e on e.id = r.execution_id
+        where r.status = 'failed'
+        order by r.id desc
+        limit 10
+    """)
+    with get_engine().connect() as conn:
+        totals = dict(conn.execute(totals_sql).mappings().one())
+        trend = [dict(r) for r in conn.execute(trend_sql).mappings()]
+        failures = [dict(r) for r in conn.execute(failures_sql).mappings()]
+    return {
+        "totals": totals,
+        "trend": list(reversed(trend)),  # oldest first, for the chart
+        "failures": failures,
+    }
