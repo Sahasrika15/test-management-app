@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from core.csv_import import validate_csv_text
 from core.importer import import_csv_text
+from core.runs import create_run
 from core.test_cases import list_test_cases, set_enabled
 
 st.set_page_config(page_title="Test management", layout="wide")
@@ -207,20 +208,19 @@ with tab_cases:
 with tab_run:
     with st.container(border=True):
         st.markdown('<p class="tm-section">Start a run</p>', unsafe_allow_html=True)
+        cases = list_test_cases()
+        enabled_ids = [c["test_case_id"] for c in cases if c["enabled"]]
         app_url = st.text_input("Application URL", placeholder="https://your-app.example.com")
-        selected = st.multiselect(
-            "Test cases to run",
-            SAMPLE_CASES["Test case ID"].tolist(),
-            default=SAMPLE_CASES["Test case ID"].tolist(),
-        )
-        if st.button("Start run"):
-            if not app_url:
-                st.error("Enter an application URL first.")
-            else:
-                st.success(
-                    f"Ready to run {len(selected)} test case(s) against {app_url}. "
-                    "The worker is added in a later stage."
-                )
+        if not enabled_ids:
+            st.info("No enabled test cases. Turn some on in the Test cases tab.")
+        else:
+            selected = st.multiselect("Test cases to run", enabled_ids, default=enabled_ids)
+            if st.button("Start run"):
+                try:
+                    run_id, queued = create_run(app_url, selected)
+                    st.success(f"Run {run_id} created with {queued} queued test(s).")
+                except ValueError as error:
+                    st.error(str(error))
 
 with tab_reports:
     with st.container(border=True):
