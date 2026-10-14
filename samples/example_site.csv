@@ -1,0 +1,3 @@
+test_case_id,test_case_name,page,steps,expected_result,enabled
+PUB001,Example page shows documentation notice,/,Check that This domain is for use in documentation examples is displayed,Notice is visible,Yes
+PUB002,Missing button fails,/,Click the Next week button,Button is clicked,Yes

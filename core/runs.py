@@ -52,3 +52,67 @@ def list_runs():
     """)
     with get_engine().connect() as conn:
         return [dict(row) for row in conn.execute(sql).mappings()]
+
+
+def claim_next_run():
+    """Mark the oldest queued run as running and return it, or None if there are none."""
+    sql = text("""
+        update executions
+        set status = 'running', started_at = now()
+        where id = (
+            select id from executions
+            where status = 'queued'
+            order by id
+            limit 1
+            for update skip locked
+        )
+        returning id, app_url
+    """)
+    with get_engine().begin() as conn:
+        row = conn.execute(sql).mappings().first()
+    return dict(row) if row else None
+
+
+def get_queued_results(run_id):
+    """Return the queued test results for one run, with their test case details."""
+    sql = text("""
+        select r.id, t.test_case_id, t.test_case_name, t.page, t.steps
+        from test_results r
+        join test_cases t on t.id = r.test_case_id
+        where r.execution_id = :run_id and r.status = 'queued'
+        order by t.test_case_id
+    """)
+    with get_engine().connect() as conn:
+        return [dict(row) for row in conn.execute(sql, {"run_id": run_id}).mappings()]
+
+
+def save_result(result_id, status, failed_step, error_message, video_path, duration_ms):
+    sql = text("""
+        update test_results
+        set status = :status,
+            failed_step = :failed_step,
+            error_message = :error_message,
+            video_path = :video_path,
+            duration_ms = :duration_ms,
+            completed_at = now()
+        where id = :result_id
+    """)
+    with get_engine().begin() as conn:
+        conn.execute(sql, {
+            "result_id": result_id,
+            "status": status,
+            "failed_step": failed_step,
+            "error_message": error_message,
+            "video_path": video_path,
+            "duration_ms": duration_ms,
+        })
+
+
+def finish_run(run_id):
+    sql = text("""
+        update executions
+        set status = 'completed', completed_at = now()
+        where id = :run_id
+    """)
+    with get_engine().begin() as conn:
+        conn.execute(sql, {"run_id": run_id})
