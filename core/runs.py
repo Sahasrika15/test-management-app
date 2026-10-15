@@ -85,13 +85,13 @@ def get_queued_results(run_id):
         return [dict(row) for row in conn.execute(sql, {"run_id": run_id}).mappings()]
 
 
-def save_result(result_id, status, failed_step, error_message, video_path, duration_ms):
+def save_result(result_id, status, failed_step, error_message, video_data, duration_ms):
     sql = text("""
         update test_results
         set status = :status,
             failed_step = :failed_step,
             error_message = :error_message,
-            video_path = :video_path,
+            video_data = :video_data,
             duration_ms = :duration_ms,
             completed_at = now()
         where id = :result_id
@@ -102,7 +102,7 @@ def save_result(result_id, status, failed_step, error_message, video_path, durat
             "status": status,
             "failed_step": failed_step,
             "error_message": error_message,
-            "video_path": video_path,
+            "video_data": video_data,
             "duration_ms": duration_ms,
         })
 
@@ -117,10 +117,11 @@ def finish_run(run_id):
         conn.execute(sql, {"run_id": run_id})
 
 def get_run_results(run_id):
-    """Return every test result for one run, with the expected result and video path."""
+    """Return every test result for one run. Video bytes are not loaded here; has_video says whether one exists."""
     sql = text("""
-        select t.test_case_id, t.test_case_name, t.expected_result,
-               r.status, r.failed_step, r.error_message, r.duration_ms, r.video_path
+        select r.id, t.test_case_id, t.test_case_name, t.expected_result,
+               r.status, r.failed_step, r.error_message, r.duration_ms, r.video_path,
+               (r.video_data is not null) as has_video
         from test_results r
         join test_cases t on t.id = r.test_case_id
         where r.execution_id = :run_id
@@ -129,6 +130,13 @@ def get_run_results(run_id):
     with get_engine().connect() as conn:
         return [dict(row) for row in conn.execute(sql, {"run_id": run_id}).mappings()]
 
+def get_result_video(result_id):
+    with get_engine().connect() as conn:
+        row = conn.execute(
+            text("select video_data from test_results where id = :id"), {"id": result_id}
+        ).first()
+    return bytes(row[0]) if row and row[0] is not None else None
+    
 def get_dashboard_stats():
     """Summary numbers, recent run trend, and latest failures for the Dashboard."""
     totals_sql = text("""

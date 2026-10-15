@@ -8,7 +8,7 @@ import streamlit as st
 
 from core.csv_import import validate_csv_text
 from core.importer import import_csv_text
-from core.runs import create_run, get_dashboard_stats, get_run_results, list_runs
+from core.runs import create_run, get_dashboard_stats, get_result_video, get_run_results, list_runs
 from core.test_cases import list_sources, list_test_cases, set_enabled
 
 st.set_page_config(page_title="Verity - Plain words. Proven results.", layout="wide")
@@ -242,9 +242,16 @@ def result_card(r, run_id):
             f"<b>Duration:</b> {seconds:.2f} s</p>",
             unsafe_allow_html=True,
         )
-        if r["video_path"] and Path(r["video_path"]).exists():
+        has_disk_file = bool(r["video_path"]) and Path(r["video_path"]).exists()
+        if r["has_video"] or has_disk_file:
             if st.toggle("Play video", key=f"play_{run_id}_{r['test_case_id']}"):
-                st.video(r["video_path"])
+                data = get_result_video(r["id"]) if r["has_video"] else None
+                if data:
+                    st.video(data, format="video/webm")
+                elif has_disk_file:
+                    st.video(r["video_path"])
+                else:
+                    st.caption("Video could not be loaded.")
         else:
             st.caption("No video file found for this test.")
 

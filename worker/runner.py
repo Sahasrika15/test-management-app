@@ -349,25 +349,18 @@ def run_test(browser, base_url, run_id, row, session_id):
     # 2. Close context
     context.close()
 
-    video_path = None
+    video_bytes = None
     if video:
-        out = VIDEO_DIR / f"run{run_id}_{row['test_case_id']}.webm"
         try:
-            # Playwright finalizes recording upon page/context close
-            video.save_as(str(out))
-            video.delete()
-            video_path = str(out)
+            tmp_path = Path(video.path())
+            video_bytes = tmp_path.read_bytes()
+            tmp_path.unlink(missing_ok=True)
         except Exception:
-            # Fallback to existing path if save_as encounters a lock
-            try:
-                video_path = video.path()
-            except Exception:
-                video_path = None
+            video_bytes = None
 
     duration_ms = int((time.time() - started) * 1000)
     status = "failed" if error else "passed"
-    return status, failed_step, error, video_path, duration_ms
-
+    return status, failed_step, error, video_bytes, duration_ms
 
 def process_all_queued_runs():
     recover_stale_runs()
