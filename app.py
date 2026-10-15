@@ -1,16 +1,17 @@
-import pandas as pd
-import streamlit as st
-from core.csv_import import validate_csv_text
-from core.importer import import_csv_text
-from core.runs import create_run
-from core.test_cases import list_test_cases, set_enabled
-from pathlib import Path
 import subprocess
 import sys
-import altair as alt
-from core.runs import create_run, get_dashboard_stats, get_run_results, list_runs
+from pathlib import Path
 
-st.set_page_config(page_title="Test management", layout="wide")
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+from core.csv_import import validate_csv_text
+from core.importer import import_csv_text
+from core.runs import create_run, get_dashboard_stats, get_run_results, list_runs
+from core.test_cases import list_sources, list_test_cases, set_enabled
+
+st.set_page_config(page_title="Verity - Plain words. Proven results.", layout="wide")
 
 NAVY = "#1F2A44"
 NAVY_SOFT = "#2E3D5E"
@@ -22,7 +23,9 @@ LINE = "#E4DCCB"
 MUTED = "#6B6F7A"
 BRICK = "#8E2F2A"
 BRICK_SOFT = "#F7E4E1"
+NEUTRAL_SOFT = "#EEF1F6"
 SERIF = "Georgia, 'Times New Roman', serif"
+CARD_HEIGHT = 440
 
 st.markdown(
     f"""
@@ -133,9 +136,6 @@ div[data-testid="stColumn"] video {{
     width: 100% !important; height: 240px !important;
     object-fit: contain; background: #0B0F1A; border-radius: 12px;
 }}
-div[data-testid="stColumn"] div[data-testid="stVerticalBlockBorderWrapper"] {{
-    min-height: 560px;
-}}
 </style>
 """,
     unsafe_allow_html=True,
@@ -145,24 +145,6 @@ TEMPLATE_CSV = (
     "test_case_id,test_case_name,page,steps,expected_result,enabled\n"
     "TC001,Timesheet week navigation,/timesheet,Click the Next week button,Next week is displayed,Yes\n"
 )
-
-SAMPLE_CASES = pd.DataFrame([
-    {"Test case ID": "TC001", "Name": "Timesheet week navigation", "Page": "/timesheet",
-     "Steps": "Click the Next week button", "Expected result": "Next week is displayed", "Enabled": True},
-    {"Test case ID": "TC002", "Name": "Validate hours over 24", "Page": "/timesheet",
-     "Steps": "Enter 25 in the Hours field; Click the Save button",
-     "Expected result": "Validation error is displayed", "Enabled": True},
-    {"Test case ID": "TC003", "Name": "Save timesheet", "Page": "/timesheet",
-     "Steps": "Enter 8 in the Hours field; Click the Save button",
-     "Expected result": "Timesheet saves successfully", "Enabled": True},
-])
-
-SAMPLE_RESULTS = pd.DataFrame([
-    {"Test case ID": "TC001", "Status": "Passed", "Failed step": "", "Error": "", "Duration (s)": 4.2},
-    {"Test case ID": "TC002", "Status": "Failed", "Failed step": 2,
-     "Error": "Could not find button 'Save'", "Duration (s)": 6.8},
-    {"Test case ID": "TC003", "Status": "Passed", "Failed step": "", "Error": "", "Duration (s)": 5.1},
-])
 
 
 def metric_card(label, value, variant=""):
@@ -180,27 +162,70 @@ def status_style(value):
         return f"background-color: {BRICK_SOFT}; color: {BRICK}; font-weight: 600;"
     return f"color: {MUTED};"
 
+
 def go_to(page_name):
     st.session_state["nav"] = page_name
 
 
-def confirm_import(content):
-    _, saved = import_csv_text(content)
+def confirm_import(content, source_name):
+    _, saved = import_csv_text(content, source_file=source_name)
     st.session_state["nav"] = "Test cases"
-    st.session_state["flash"] = f"Saved {saved} test case(s)."
+    st.session_state["view_source_box"] = source_name
+    st.session_state["flash"] = f"Saved {saved} test case(s) from {source_name}."
 
-def result_card(r):
-    passed = r["status"] == "passed"
-    badge_bg = GOLD_SOFT if passed else BRICK_SOFT
-    badge_fg = NAVY if passed else BRICK
-    badge = "Passed" if passed else "Failed"
-    if passed:
+
+def start_run():
+    app_url = st.session_state.get("start_url", "")
+    source = st.session_state.get("view_source_box")
+    enabled = [c["test_case_id"] for c in list_test_cases(source) if c["enabled"]]
+    selected = [c for c in st.session_state.get("start_cases", enabled) if c in enabled]
+    try:
+        run_id, queued = create_run(app_url, selected)
+    except ValueError as error:
+        st.session_state["start_error"] = str(error)
+        return
+
+    log_dir = Path("artifacts/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = open(log_dir / "worker.log", "a", encoding="utf-8")
+    subprocess.Popen(
+        [sys.executable, "-m", "worker.runner"],
+        cwd=str(Path(__file__).parent),
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        creationflags=(
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        ),
+    )
+    st.session_state["start_error"] = None
+    st.session_state["nav"] = "Reports"
+    st.session_state["rep_run"] = run_id
+    st.session_state["flash"] = (
+        f"Run {run_id} started with {queued} test(s). Results appear as each test finishes."
+    )
+
+
+def result_card(r, run_id):
+    status = r["status"]
+    badges = {
+        "passed": ("Passed", GOLD_SOFT, NAVY),
+        "failed": ("Failed", BRICK_SOFT, BRICK),
+    }
+    badge, badge_bg, badge_fg = badges.get(status, (status.capitalize(), NEUTRAL_SOFT, MUTED))
+
+    if status == "passed":
         actual = "All steps completed."
+    elif status == "failed":
+        step_no = r["failed_step"]
+        reason = r["error_message"] or "no reason was recorded"
+        actual = f"Stopped at step {step_no}: {reason}" if step_no is not None else reason
     else:
-        actual = f"Stopped at step {r['failed_step']}: {r['error_message'] or 'unknown error'}"
+        actual = "Not run yet. The worker has not picked this test up."
+
     seconds = (r["duration_ms"] or 0) / 1000
 
-    with st.container(border=True):
+    with st.container(border=True, height=CARD_HEIGHT):
         st.markdown(
             f'<div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">'
             f'<span style="font-family:{SERIF}; font-size:18px; color:{NAVY};">'
@@ -211,21 +236,97 @@ def result_card(r):
             unsafe_allow_html=True,
         )
         st.markdown(
-            f'<p class="tm-hint" style="margin-top:10px; min-height:96px;">'
+            f'<p class="tm-hint" style="margin-top:10px;">'
             f"<b>Expected:</b> {r['expected_result']}<br>"
             f"<b>Actual:</b> {actual}<br>"
             f"<b>Duration:</b> {seconds:.2f} s</p>",
             unsafe_allow_html=True,
         )
         if r["video_path"] and Path(r["video_path"]).exists():
-            st.video(r["video_path"])
+            if st.toggle("Play video", key=f"play_{run_id}_{r['test_case_id']}"):
+                st.video(r["video_path"])
         else:
             st.caption("No video file found for this test.")
 
+
+def render_reports(live):
+    with st.container(border=True):
+        st.markdown('<p class="tm-section">Run report</p>', unsafe_allow_html=True)
+        runs = [r for r in list_runs() if r["total"] > 0]
+        if not runs:
+            st.info("No runs yet. Start one from the Start run tab.")
+            return
+
+        active = any(r["status"] in ("queued", "running") for r in runs)
+        if live and not active:
+            # The run has finished, so switch back to the static view and stop polling.
+            st.rerun(scope="app")
+
+        top, _ = st.columns([4, 1])
+        with top:
+            labels = {r["id"]: f"Run {r['id']}  {r['app_url']}  ({r['status']})" for r in runs}
+            run_id = st.selectbox("Run", list(labels), format_func=lambda i: labels[i], key="rep_run")
+
+        results = get_run_results(run_id)
+
+        passed_n = sum(1 for r in results if r["status"] == "passed")
+        failed_n = sum(1 for r in results if r["status"] == "failed")
+        s1, s2, s3 = st.columns(3, gap="large")
+        with s1:
+            st.markdown(metric_card("Tests in run", len(results)), unsafe_allow_html=True)
+        with s2:
+            st.markdown(metric_card("Passed", passed_n), unsafe_allow_html=True)
+        with s3:
+            st.markdown(metric_card("Failed", failed_n, "fail" if failed_n else ""), unsafe_allow_html=True)
+
+        search = st.text_input("Search videos", placeholder="Type a test case ID or name", key="video_search")
+        query = search.strip().lower()
+        filtered = [
+            r for r in results
+            if not query
+            or query in r["test_case_id"].lower()
+            or query in r["test_case_name"].lower()
+        ]
+        st.markdown(
+            f'<p class="tm-hint">Showing {len(filtered)} of {len(results)} tests</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p class="tm-section" style="margin-top:12px;">Test results</p>',
+            unsafe_allow_html=True,
+        )
+        if not filtered:
+            st.info("No tests match your search.")
+        for i in range(0, len(filtered), 2):
+            cols = st.columns(2, gap="large")
+            for col, r in zip(cols, filtered[i:i + 2]):
+                with col:
+                    result_card(r, run_id)
+
+
+@st.fragment(run_every="2s")
+def live_reports():
+    render_reports(live=True)
+
+
+@st.fragment
+def static_reports():
+    render_reports(live=False)
+
+
+runs_with_results = [r for r in list_runs() if r["total"] > 0]
+_last_at = runs_with_results[0]["created_at"] if runs_with_results else None
+_last_label = f"Last run: {_last_at:%d %b, %H:%M}" if _last_at else "No runs yet"
+
 st.markdown(
     '<div class="tm-hero">'
-    '<p class="tm-title">Test management</p>'
-    '<p class="tm-sub">Last run: 14 Oct, 14:31</p>'
+    '<div>'
+    '<p class="tm-title">Verity</p>'
+    '<p style="font-family:Georgia, \'Times New Roman\', serif; font-size:15px; '
+    'color:#F5EBD7; opacity:0.9; margin:6px 0 0 0;">'
+    'Plain words. Proven results.</p>'
+    '</div>'
+    f'<p class="tm-sub">{_last_label}</p>'
     "</div>",
     unsafe_allow_html=True,
 )
@@ -237,6 +338,11 @@ page = st.segmented_control(
     key="nav",
     label_visibility="collapsed",
 ) or "Dashboard"
+
+flash = st.session_state.pop("flash", None)
+if flash:
+    st.success(flash)
+
 
 if page == "Dashboard":
     stats = get_dashboard_stats()
@@ -276,14 +382,18 @@ if page == "Dashboard":
     with left:
         with st.container(border=True):
             st.markdown('<p class="tm-section">Recent runs</p>', unsafe_allow_html=True)
-            if stats["trend"]:
+            judged_trend = [
+                r for r in stats["trend"]
+                if int(r["passed"]) + int(r["failed"]) > 0
+            ]
+            if judged_trend:
                 trend_df = pd.DataFrame([
                     {"Run": f"Run {r['run_id']}", "Passed": int(r["passed"]), "Failed": int(r["failed"])}
-                    for r in stats["trend"]
+                    for r in judged_trend
                 ]).set_index("Run")
                 st.bar_chart(trend_df, color=[NAVY, BRICK])
             else:
-                st.info("No runs yet. Start one from the Start run tab.")
+                st.info("No runs with saved results yet. Start a run from the Start run tab and the chart will fill in.")
 
     with right:
         with st.container(border=True):
@@ -325,6 +435,7 @@ if page == "Dashboard":
         else:
             st.success("No failures recorded.")
 
+
 if page == "Upload CSV":
     with st.container(border=True):
         st.markdown('<p class="tm-section">Upload test cases</p>', unsafe_allow_html=True)
@@ -345,116 +456,95 @@ if page == "Upload CSV":
             result = validate_csv_text(content)
             if result.ok:
                 st.success(f"{len(result.rows)} valid rows. Ready to import.")
-                st.dataframe(pd.DataFrame(result.rows), hide_index=True, use_container_width=True)
-                st.button("Confirm import", on_click=confirm_import, args=(content,))
+                st.dataframe(pd.DataFrame(result.rows), hide_index=True, width="stretch")
+                st.button(
+                    "Confirm import",
+                    on_click=confirm_import,
+                    args=(content, uploaded.name),
+                )
             else:
                 st.error("Nothing was saved. Fix these rows and upload again:")
                 for error in result.errors:
                     st.markdown(f"- {error}")
 
+
 if page == "Test cases":
-    flash = st.session_state.pop("flash", None)
-    if flash:
-        st.success(flash)
     with st.container(border=True):
         st.markdown('<p class="tm-section">Test cases</p>', unsafe_allow_html=True)
         st.markdown(
             '<p class="tm-hint">Turn a test case on or off. The change saves immediately.</p>',
             unsafe_allow_html=True,
         )
-        cases = list_test_cases()
-        if not cases:
+        sources = list_sources()
+        if not sources:
             st.info("No test cases yet. Upload a CSV in the Upload CSV tab.")
         else:
-            table = pd.DataFrame(cases)
-            edited = st.data_editor(
-                table,
-                disabled=["test_case_id", "test_case_name", "page", "steps", "expected_result"],
-                hide_index=True,
-                use_container_width=True,
-                key="cases_editor",
+            choices = [s["source_file"] or "" for s in sources]
+            names = {
+                (s["source_file"] or ""): (
+                    f"{s['source_file']}  ({s['total']} cases)"
+                    if s["source_file"]
+                    else f"Earlier imports  ({s['total']} cases)"
+                )
+                for s in sources
+            }
+            view = st.selectbox(
+                "Showing test cases from",
+                choices,
+                format_func=lambda c: names[c],
+                key="view_source_box",
             )
-            for _, row in edited.iterrows():
-                original = table.loc[table["test_case_id"] == row["test_case_id"], "enabled"].iloc[0]
-                if bool(row["enabled"]) != bool(original):
-                    set_enabled(row["test_case_id"], bool(row["enabled"]))
-                    st.rerun()
-            st.button("Go to Start run", on_click=go_to, args=("Start run",))
+            cases = list_test_cases(view)
+            if not cases:
+                st.info("This file has no test cases.")
+            else:
+                table = pd.DataFrame(cases).drop(columns=["source_file"])
+                edited = st.data_editor(
+                    table,
+                    disabled=["test_case_id", "test_case_name", "page", "steps", "expected_result"],
+                    hide_index=True,
+                    width="stretch",
+                    key=f"cases_editor_{view}",
+                )
+                for _, row in edited.iterrows():
+                    original = table.loc[
+                        table["test_case_id"] == row["test_case_id"], "enabled"
+                    ].iloc[0]
+                    if bool(row["enabled"]) != bool(original):
+                        set_enabled(row["test_case_id"], bool(row["enabled"]))
+                        st.rerun()
+        st.button("Go to Start run", on_click=go_to, args=("Start run",))
+
 
 if page == "Start run":
     with st.container(border=True):
         st.markdown('<p class="tm-section">Start a run</p>', unsafe_allow_html=True)
-        cases = list_test_cases()
+        source = st.session_state.get("view_source_box")
+        cases = list_test_cases(source) if source else list_test_cases()
         enabled_ids = [c["test_case_id"] for c in cases if c["enabled"]]
-        app_url = st.text_input("Application URL", placeholder="https://your-app.example.com")
+        st.text_input(
+            "Application URL",
+            placeholder="https://your-app.example.com",
+            key="start_url",
+        )
         if not enabled_ids:
             st.info("No enabled test cases. Turn some on in the Test cases tab.")
         else:
-            selected = st.multiselect("Test cases to run", enabled_ids, default=enabled_ids)
-            if st.button("Start run"):
-                try:
-                    run_id, queued = create_run(app_url, selected)
-                    log_dir = Path("artifacts/logs")
-                    log_dir.mkdir(parents=True, exist_ok=True)
-                    log_file = open(log_dir / "worker.log", "a", encoding="utf-8")
-                    subprocess.Popen(
-                        [sys.executable, "-m", "worker.runner"],
-                        cwd=str(Path(__file__).parent),
-                        stdout=log_file,
-                        stderr=subprocess.STDOUT,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                    st.success(
-                        f"Run {run_id} started with {queued} test(s). "
-                        "Open the Reports tab to see results as they finish."
-                    )
-                except ValueError as error:
-                    st.error(str(error))
+            st.multiselect("Test cases to run", enabled_ids, default=enabled_ids, key="start_cases")
+            st.button("Start run", on_click=start_run)
+        error = st.session_state.pop("start_error", None)
+        if error:
+            st.error(error)
+
 
 if page == "Reports":
-    with st.container(border=True):
-        st.markdown('<p class="tm-section">Run report</p>', unsafe_allow_html=True)
-        runs = [r for r in list_runs() if r["total"] > 0]
-        if not runs:
-            st.info("No runs yet. Start one from the Start run tab.")
-        else:
-            labels = {r["id"]: f"Run {r['id']}  {r['app_url']}  ({r['status']})" for r in runs}
-            run_id = st.selectbox("Run", list(labels), format_func=lambda i: labels[i])
-            results = get_run_results(run_id)
-
-            passed_n = sum(1 for r in results if r["status"] == "passed")
-            failed_n = sum(1 for r in results if r["status"] == "failed")
-            s1, s2, s3 = st.columns(3, gap="large")
-            with s1:
-                st.markdown(metric_card("Tests in run", len(results)), unsafe_allow_html=True)
-            with s2:
-                st.markdown(metric_card("Passed", passed_n), unsafe_allow_html=True)
-            with s3:
-                st.markdown(metric_card("Failed", failed_n, "fail" if failed_n else ""), unsafe_allow_html=True)
-
-            search = st.text_input(
-                "Search videos",
-                placeholder="Type a test case ID or name",
-                key="video_search",
-            )
-            query = search.strip().lower()
-            filtered = [
-                r for r in results
-                if not query
-                or query in r["test_case_id"].lower()
-                or query in r["test_case_name"].lower()
-            ]
-            st.markdown(
-                f'<p class="tm-hint">Showing {len(filtered)} of {len(results)} tests</p>',
-                unsafe_allow_html=True,
-            )
-
-            st.markdown('<p class="tm-section" style="margin-top:12px;">Test results</p>',
-                        unsafe_allow_html=True)
-            if not filtered:
-                st.info("No tests match your search.")
-            for i in range(0, len(filtered), 2):
-                cols = st.columns(2, gap="large")
-                for col, r in zip(cols, filtered[i:i + 2]):
-                    with col:
-                        result_card(r)
+    # Poll every 2 seconds only while a run is queued or running. Otherwise show a static view.
+    any_active = any(
+        r["status"] in ("queued", "running")
+        for r in list_runs()
+        if r["total"] > 0
+    )
+    if any_active:
+        live_reports()
+    else:
+        static_reports()

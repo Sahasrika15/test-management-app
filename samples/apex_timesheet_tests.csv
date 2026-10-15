@@ -1,0 +1,8 @@
+test_case_id,test_case_name,page,steps,expected_result,enabled
+TSH001,Week navigation toggles between next and present week,/timesheet-copy,Click the Next Week button; Check that Project Name is displayed; Click the Last Week button; Check that Project Name is displayed,Week toggles and returns to present week grid,Yes
+TSH002,Enter more than 24 hours triggers validation,/timesheet-copy,Enter 25 in the WED cell of Test Project 2; Check that Maximum 24 hours allowed for one day across all projects is displayed,Validation message is visible,Yes
+TSH003,Remove a row from timesheet,/timesheet-copy,Click the Remove button; Check that Project Name is displayed,Row is removed and grid refreshes,Yes
+TSH004,My Whereabouts button is shown,/timesheet-copy,Check that My Whereabouts is displayed,Button is visible,Yes
+TSH005,Submit Timesheet button exists,/timesheet-copy,Click the Submit Timesheet button,Timesheet is submitted,Yes
+TSH006,Project 9 row exists,/timesheet-copy,Check that Test Project 9 is displayed,Project row is visible,Yes
+TSH007,Letter in hours cell shows validation,/timesheet-copy,Enter a in the WED cell of Test Project 2; Check that Please enter numbers only is displayed,Validation message is visible,Yes

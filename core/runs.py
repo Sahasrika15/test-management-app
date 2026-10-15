@@ -170,3 +170,26 @@ def get_dashboard_stats():
         "trend": list(reversed(trend)),  # oldest first, for the chart
         "failures": failures,
     }
+
+def recover_stale_runs(older_than_minutes=60):
+    """Close runs left running by a worker that died. Their unfinished tests are marked failed."""
+    window = f"{int(older_than_minutes)} minutes"
+    with get_engine().begin() as conn:
+        conn.execute(text("""
+            update test_results r
+            set status = 'failed',
+                failed_step = 0,
+                error_message = 'Runner stopped before this test ran; run again',
+                completed_at = now()
+            from executions e
+            where r.execution_id = e.id
+              and r.status = 'queued'
+              and e.status = 'running'
+              and e.started_at < now() - cast(:window as interval)
+        """), {"window": window})
+        conn.execute(text("""
+            update executions
+            set status = 'completed', completed_at = now()
+            where status = 'running'
+              and started_at < now() - cast(:window as interval)
+        """), {"window": window})

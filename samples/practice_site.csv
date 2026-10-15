@@ -1,0 +1,3 @@
+test_case_id,test_case_name,page,steps,expected_result,enabled
+SAU001,Valid login opens the products page,/,Enter standard_user in the Username field; Enter secret_sauce in the Password field; Click the Login button; Check that Products is displayed,Products page opens,Yes
+SAU002,Locked user is rejected,/,Enter locked_out_user in the Username field; Enter secret_sauce in the Password field; Click the Login button; Check that Epic sadface is displayed,Error message is shown,Yes
