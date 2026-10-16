@@ -1,3 +1,10 @@
 test_case_id,test_case_name,page,steps,expected_result,enabled
-PUB001,Example page shows documentation notice,/,Check that This domain is for use in documentation examples is displayed,Notice is visible,Yes
-PUB002,Missing button fails,/,Click the Next week button,Button is clicked,Yes
+LOGIN001,Login,/,Enter ${APP_USER} in Username field; Enter ${APP_PASS} in Password field; Click the Sign In button; Check that Password is not displayed,Login completes,Yes
+TSH001,Week navigation,/timesheet,Click the Next Week button; Check that Project Name is displayed; Click the Last Week button; Check that Project Name is displayed,Week toggles and returns to present week grid,Yes
+EMP002,Hours above 24 in TUE shows validation popup,/timesheet,Click the TUE cell of Project E; Enter 25 in the Hours field; Click the Save button; Click the OK button; Check that Invalid hours. Please enter a value between 0 and 24 is displayed,Validation popup is shown,Yes
+TSH003,Remove a row from timesheet,/timesheet-copy,Click the Remove button; Check that Project Name is displayed,Row is removed and grid refreshes,Yes
+TSH004,My Whereabouts button is shown,/timesheet-copy,Check that My Whereabouts is displayed,Button is visible,Yes
+TSH005,Submit Timesheet button exists,/timesheet-copy,Click the Submit Timesheet button,Timesheet is submitted,Yes
+TSH006,Project 9 row exists,/timesheet-copy,Check that Test Project 9 is displayed,Project row is visible,Yes
+TSH007,Letter in hours cell shows validation,/timesheet-copy,Enter a in the WED cell of Test Project 2; Check that Please enter numbers only is displayed,Validation message is visible,Yes
+TSH008,Last week fields are not editable,/timesheet-copy,Click the Last Week button; Check that the WED cell of Test Project 2 is not editable,Fields in last week are read only,Yes

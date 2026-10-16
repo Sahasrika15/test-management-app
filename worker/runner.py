@@ -1,19 +1,16 @@
-"""Phase F: the worker. Reads queued results, runs each row's steps through the
-interpreter, dispatcher, and assertion engine, and stores the outcome and video.
-
-Steps may reference secrets as ${NAME}; the value is read from .env at run time
-and is never stored or printed. The page in a row, if given, is opened first.
-"""
+"""Worker. A test whose ID starts with LOGIN is the run's login. It runs first. If it passes,
+its browser state and session ID are shared with every other test in the run. Credentials come
+from .env through ${NAME} placeholders, never from the UI or the database."""
 import os
 import re
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 
-from core.runs import claim_next_run, finish_run, get_queued_results, recover_stale_runs, save_result
+from core.runs import claim_run, finish_run, get_queued_results, save_result
 from core.step_interpreter import interpret, interpret_steps
 from worker.action_dispatcher import run_plans
 from worker.operations import ERROR, NEEDS_REVIEW, PASSED, first_line
@@ -23,6 +20,9 @@ load_dotenv()
 VIDEO_DIR = Path("artifacts/videos")
 SCREEN_DIR = Path("artifacts/screenshots")
 STEP_TIMEOUT_MS = int(os.getenv("STEP_TIMEOUT_MS", "5000"))
+STEP_PAUSE_MS = int(os.getenv("STEP_PAUSE_MS", "700"))
+VIDEO_TAIL_MS = int(os.getenv("VIDEO_TAIL_MS", "3000"))
+LOGIN_PREFIX = "LOGIN"
 PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
 
@@ -31,8 +31,8 @@ def resolve(text):
     return PLACEHOLDER.sub(lambda m: os.getenv(m.group(1), ""), text)
 
 
-def mask(text, names):
-    """Replace secret values with their ${NAME} form before anything is stored or printed."""
+def mask_env(text, names):
+    """Show ${NAME} instead of the value of an environment variable in stored text."""
     for name in names:
         secret = os.getenv(name, "")
         if secret:
@@ -47,45 +47,62 @@ def clean_base_url(url):
 
 
 def page_url(base_url, page_path):
-    """Join the application URL and a row's page path without duplicating the path."""
     page_path = "/" + page_path.strip("/")
     base = base_url.rstrip("/")
     return base if base.endswith(page_path) else base + page_path
 
 
-def build_plans(row, base_url):
-    """Interpret one row. The page, if given, becomes the first plan."""
+def with_session(url, session_id):
+    """Add the session ID that the application keeps in its URL, once a login has produced one."""
+    if not session_id:
+        return url
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}session={session_id}"
+
+
+def session_from(url):
+    return parse_qs(urlsplit(url).query).get("session", [None])[0]
+
+
+def is_login_row(row):
+    return row["test_case_id"].strip().upper().startswith(LOGIN_PREFIX)
+
+
+def build_plans(row, base_url, session_id=None):
     plans = []
     if row["page"].strip():
-        plans.append(interpret("Go to " + page_url(base_url, row["page"])))
+        target = with_session(page_url(base_url, row["page"]), session_id)
+        plans.append(interpret("Go to " + target))
     plans.extend(interpret_steps(resolve(row["steps"])))
     return plans
 
 
-def run_test(browser, base_url, run_id, row):
-    """Run one row. Returns (status, failed_step, error, video_bytes, duration_ms)."""
+def run_test(browser, base_url, run_id, row, login_state=None, session_id=None, capture=None):
+    """Run one row. Returns (status, failed_step, error, video_bytes, duration_ms).
+    If capture is a dict and the row passes, the browser state and session ID are stored in it."""
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 
     names = PLACEHOLDER.findall(row["steps"])
     offset = 1 if row["page"].strip() else 0
-    plans = build_plans(row, base_url)
+    plans = build_plans(row, base_url, session_id)
 
-    # Refuse before opening a browser if any step cannot be run.
     for number, plan in enumerate(plans, start=1):
         if not plan.ok:
-            reason = mask(plan.reason, names)
-            return NEEDS_REVIEW, number - offset, f"Not run: {reason}", None, 0
+            return NEEDS_REVIEW, number - offset, f"Not run: {mask_env(plan.reason, names)}", None, 0
 
-    context = browser.new_context(
-        record_video_dir=str(VIDEO_DIR),
-        record_video_size={"width": 1280, "height": 720},
-    )
+    options = {
+        "record_video_dir": str(VIDEO_DIR),
+        "record_video_size": {"width": 1280, "height": 720},
+    }
+    if login_state:
+        options["storage_state"] = login_state
+    context = browser.new_context(**options)
     page = context.new_page()
     video = page.video
     started = time.time()
 
-    outcome = run_plans(page, base_url, plans, STEP_TIMEOUT_MS)
+    outcome = run_plans(page, base_url, plans, STEP_TIMEOUT_MS, pause_ms=STEP_PAUSE_MS)
 
     status, failed_step, error = outcome.status, None, None
     if outcome.status != PASSED:
@@ -94,14 +111,17 @@ def run_test(browser, base_url, run_id, row):
             label = "Page did not load"
         else:
             label = f"Step {failed_step} '{plans[outcome.step - 1].step}'"
-        error = mask(f"{label}: {outcome.reason} (ended on {page.url})", names)
+        error = mask_env(f"{label}: {outcome.reason} (ended on {page.url})", names)
+    elif capture is not None:
+        capture["state"] = context.storage_state()
+        capture["session"] = session_from(page.url)
 
     try:
         page.screenshot(path=str(SCREEN_DIR / f"run{run_id}_{row['test_case_id']}.png"))
     except Exception:
         pass
     try:
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(VIDEO_TAIL_MS)
     except Exception:
         pass
 
@@ -121,55 +141,84 @@ def run_test(browser, base_url, run_id, row):
     return status, failed_step, error, video_bytes, duration_ms
 
 
-def process_all_queued_runs():
-    recover_stale_runs()
-    while True:
-        run = claim_next_run()
-        if run is None:
-            print("No more queued runs.", flush=True)
-            return
+def execute_row(browser, base_url, run_id, row, login_state=None, session_id=None, capture=None):
+    try:
+        return run_test(browser, base_url, run_id, row, login_state, session_id, capture)
+    except Exception as exc:
+        return ERROR, 0, f"Runner error: {first_line(exc)}", None, 0
 
-        run_id = run["id"]
-        rows = []
-        done = set()
 
-        try:
-            run["app_url"] = clean_base_url(run["app_url"])
-            print(f"Running execution {run_id} against {run['app_url']}", flush=True)
-            rows = get_queued_results(run_id)
+def report(row, result):
+    status, failed_step, error, video, duration = result
+    save_result(row["id"], status, failed_step, error, video, duration)
+    line = f"  {row['test_case_id']}  {status}  {duration} ms"
+    print(line + (f"  {error}" if error else ""), flush=True)
 
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                try:
-                    for row in rows:
-                        try:
-                            status, failed_step, error, video, duration = run_test(
-                                browser, run["app_url"], run_id, row
-                            )
-                        except Exception as exc:
-                            status, failed_step, error, video, duration = (
-                                ERROR, 0, f"Runner error: {first_line(exc)}", None, 0
-                            )
-                        save_result(row["id"], status, failed_step, error, video, duration)
-                        done.add(row["id"])
-                        line = f"  {row['test_case_id']}  {status}  {duration} ms"
-                        print(line + (f"  {error}" if error else ""), flush=True)
-                finally:
-                    browser.close()
-        except Exception as exc:
-            print(f"  Worker error: {first_line(exc)}", flush=True)
-        finally:
-            for row in rows:
-                if row["id"] not in done:
-                    save_result(
-                        row["id"], ERROR, 0,
-                        "Runner stopped before this test ran; run again",
-                        None, 0,
-                    )
-                    print(f"  {row['test_case_id']}  error  Runner stopped before this test ran", flush=True)
-            finish_run(run_id)
-            print(f"Execution {run_id} finished.", flush=True)
+
+def process_run(run_id):
+    """Run one specific execution, then stop. It never picks up other runs."""
+    run = claim_run(run_id)
+    if run is None:
+        print(f"Execution {run_id} is not queued; nothing to do.", flush=True)
+        return
+
+    rows = []
+    done = set()
+    worker_error = None
+
+    try:
+        run["app_url"] = clean_base_url(run["app_url"])
+        print(f"Running execution {run_id} against {run['app_url']}", flush=True)
+        if os.getenv("APP_USER"):
+            print(f"  Login user for this run: {os.getenv('APP_USER')}", flush=True)
+        rows = get_queued_results(run_id)
+        logins = [r for r in rows if is_login_row(r)]
+        tests = [r for r in rows if not is_login_row(r)]
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                state, session, login_error = None, None, None
+
+                for row in logins:
+                    capture = {}
+                    result = execute_row(browser, run["app_url"], run_id, row, None, None, capture)
+                    report(row, result)
+                    done.add(row["id"])
+                    if result[0] == PASSED and capture.get("state"):
+                        state, session = capture["state"], capture.get("session")
+                        print(f"  Login passed; session {session or 'none in URL'} "
+                              "is shared with the other tests", flush=True)
+                    else:
+                        login_error = login_error or result[2] or "login did not pass"
+
+                for row in tests:
+                    if login_error:
+                        result = (ERROR, 0, f"Login failed: {login_error}", None, 0)
+                    else:
+                        result = execute_row(browser, run["app_url"], run_id, row, state, session)
+                    report(row, result)
+                    done.add(row["id"])
+            finally:
+                browser.close()
+    except Exception as exc:
+        worker_error = first_line(exc)
+        print(f"  Worker error: {worker_error}", flush=True)
+    finally:
+        for row in rows:
+            if row["id"] not in done:
+                reason = (f"Worker stopped: {worker_error}" if worker_error
+                          else "Runner stopped before this test ran; run again")
+                save_result(row["id"], ERROR, 0, reason, None, 0)
+                print(f"  {row['test_case_id']}  error  {reason}", flush=True)
+        finish_run(run_id)
+        print(f"Execution {run_id} finished.", flush=True)
 
 
 if __name__ == "__main__":
-    process_all_queued_runs()
+    import sys
+
+    if "--run" not in sys.argv:
+        print("Usage: python -m worker.runner --run <execution id>", flush=True)
+        sys.exit(1)
+    process_run(int(sys.argv[sys.argv.index("--run") + 1]))

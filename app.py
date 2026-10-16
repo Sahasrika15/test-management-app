@@ -1,11 +1,11 @@
 import subprocess
 import sys
 from pathlib import Path
-
+import json
 import altair as alt
 import pandas as pd
 import streamlit as st
-
+import os
 from core.csv_import import validate_csv_text
 from core.importer import import_csv_text
 from core.runs import create_run, get_dashboard_stats, get_result_video, get_run_results, list_runs
@@ -175,22 +175,44 @@ def confirm_import(content, source_name):
 
 
 def start_run():
-    app_url = st.session_state.get("start_url", "")
+    app_url = st.session_state.get("start_url", "").strip()
     source = st.session_state.get("view_source_box")
     enabled = [c["test_case_id"] for c in list_test_cases(source) if c["enabled"]]
     selected = [c for c in st.session_state.get("start_cases", enabled) if c in enabled]
+    needs_login = bool(st.session_state.get("needs_login"))
+    username = st.session_state.get("login_user", "").strip()
+    password = st.session_state.get("login_pass", "")
+
+    if needs_login:
+        if not username or not password:
+            st.session_state["start_error"] = "Enter the username and password, or turn off the login option."
+            return
+        if not any(c.upper().startswith("LOGIN") for c in selected):
+            st.session_state["start_error"] = (
+                "Login is on, but no LOGIN test case is selected. "
+                "Add a LOGIN row to the CSV and select it."
+            )
+            return
+
     try:
         run_id, queued = create_run(app_url, selected)
     except ValueError as error:
         st.session_state["start_error"] = str(error)
         return
 
+    # Credentials go into this worker's environment only. They are not saved to the database or a file.
+    env = dict(os.environ)
+    if needs_login:
+        env["APP_USER"] = username
+        env["APP_PASS"] = password
+
     log_dir = Path("artifacts/logs")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = open(log_dir / "worker.log", "a", encoding="utf-8")
     subprocess.Popen(
-        [sys.executable, "-m", "worker.runner"],
+        [sys.executable, "-m", "worker.runner", "--run", str(run_id)],
         cwd=str(Path(__file__).parent),
+        env=env,
         stdout=log_file,
         stderr=subprocess.STDOUT,
         creationflags=(
@@ -198,6 +220,8 @@ def start_run():
             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         ),
     )
+
+    st.session_state["login_pass"] = ""
     st.session_state["start_error"] = None
     st.session_state["nav"] = "Reports"
     st.session_state["rep_run"] = run_id
@@ -205,21 +229,22 @@ def start_run():
         f"Run {run_id} started with {queued} test(s). Results appear as each test finishes."
     )
 
-
 def result_card(r, run_id):
     status = r["status"]
     badges = {
         "passed": ("Passed", GOLD_SOFT, NAVY),
         "failed": ("Failed", BRICK_SOFT, BRICK),
+        "error": ("Error", BRICK_SOFT, BRICK),
+        "needs_review": ("Needs review", GOLD_SOFT, NAVY),
     }
     badge, badge_bg, badge_fg = badges.get(status, (status.capitalize(), NEUTRAL_SOFT, MUTED))
 
     if status == "passed":
         actual = "All steps completed."
-    elif status == "failed":
+    elif status in ("failed", "error", "needs_review"):
         step_no = r["failed_step"]
         reason = r["error_message"] or "no reason was recorded"
-        actual = f"Stopped at step {step_no}: {reason}" if step_no is not None else reason
+        actual = f"Stopped at step {step_no}: {reason}" if step_no else reason
     else:
         actual = "Not run yet. The worker has not picked this test up."
 
@@ -273,7 +298,6 @@ def render_reports(live):
         with top:
             labels = {r["id"]: f"Run {r['id']}  {r['app_url']}  ({r['status']})" for r in runs}
             run_id = st.selectbox("Run", list(labels), format_func=lambda i: labels[i], key="rep_run")
-
         results = get_run_results(run_id)
 
         passed_n = sum(1 for r in results if r["status"] == "passed")
@@ -534,6 +558,12 @@ if page == "Start run":
             placeholder="https://your-app.example.com",
             key="start_url",
         )
+        st.toggle("This application needs a login", key="needs_login")
+        if st.session_state.get("needs_login"):
+            c1, c2 = st.columns(2)
+            c1.text_input("Username", key="login_user")
+            c2.text_input("Password", type="password", key="login_pass")
+            st.caption("The LOGIN test case in the CSV signs in with these values for this run only.")
         if not enabled_ids:
             st.info("No enabled test cases. Turn some on in the Test cases tab.")
         else:

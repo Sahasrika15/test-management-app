@@ -9,6 +9,7 @@ from core.action_registry import OperationError, lookup
 from worker.assertion_engine import evaluate_check
 from worker.dom_discovery import AMBIGUOUS, FOUND, discover
 from worker.operations import ERROR, NEEDS_REVIEW, PASSED, Outcome, first_line, invoke
+NAV_TIMEOUT_MS = 60000
 
 
 def _absolute(base_url, target):
@@ -32,7 +33,9 @@ def execute(page, base_url, plan, timeout_ms=5000):
 
     try:
         if plan.kind == "navigate":
-            invoke(page, spec, value=_absolute(base_url, plan.target), timeout=timeout_ms)
+            invoke(page, spec, value=_absolute(base_url, plan.target),
+                   timeout=max(timeout_ms, NAV_TIMEOUT_MS),
+                   wait_until="domcontentloaded")
             return Outcome(PASSED)
         if plan.kind == "key":
             invoke(page.keyboard, spec, value=plan.value)
@@ -59,7 +62,7 @@ def execute(page, base_url, plan, timeout_ms=5000):
     return Outcome(PASSED)
 
 
-def run_plans(page, base_url, plans, timeout_ms=5000):
+def run_plans(page, base_url, plans, timeout_ms=5000, pause_ms=0):
     """Run a test's plans in order. Stops at the first step that does not pass."""
     for number, plan in enumerate(plans, start=1):
         if not plan.ok:
@@ -69,4 +72,6 @@ def run_plans(page, base_url, plans, timeout_ms=5000):
         outcome = execute(page, base_url, plan, timeout_ms)
         if outcome.status != PASSED:
             return Outcome(outcome.status, step=number, reason=outcome.reason)
+        if pause_ms:
+            page.wait_for_timeout(pause_ms)
     return Outcome(PASSED)

@@ -136,7 +136,7 @@ def get_result_video(result_id):
             text("select video_data from test_results where id = :id"), {"id": result_id}
         ).first()
     return bytes(row[0]) if row and row[0] is not None else None
-    
+
 def get_dashboard_stats():
     """Summary numbers, recent run trend, and latest failures for the Dashboard."""
     totals_sql = text("""
@@ -201,3 +201,16 @@ def recover_stale_runs(older_than_minutes=60):
             where status = 'running'
               and started_at < now() - cast(:window as interval)
         """), {"window": window})
+
+
+def claim_run(run_id):
+    """Mark one specific queued run as running. Returns None if it is not queued."""
+    sql = text("""
+        update executions
+        set status = 'running', started_at = now()
+        where id = :run_id and status = 'queued'
+        returning id, app_url
+    """)
+    with get_engine().begin() as conn:
+        row = conn.execute(sql, {"run_id": run_id}).mappings().first()
+    return dict(row) if row else None
