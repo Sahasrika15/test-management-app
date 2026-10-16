@@ -1,0 +1,61 @@
+{
+  "verbs": {
+    "tap": "click",
+    "press": "click",
+    "double click": "dblclick",
+    "hover over": "hover",
+    "tick": "check",
+    "untick": "uncheck",
+    "type": "fill",
+    "enter": "fill",
+    "input": "fill",
+    "write": "fill",
+    "select": "select_option",
+    "choose": "select_option",
+    "upload": "set_input_files",
+    "attach": "set_input_files",
+    "go to": "goto",
+    "navigate to": "goto",
+    "visit": "goto"
+  },
+  "states": {
+    "displayed": "visible",
+    "shown": "visible",
+    "visible": "visible",
+    "hidden": "hidden",
+    "gone": "hidden",
+    "enabled": "enabled",
+    "disabled": "disabled",
+    "editable": "editable",
+    "read only": "!editable",
+    "checked": "checked",
+    "unchecked": "!checked",
+    "value": "value",
+    "text": "text"
+  },
+  "keys": {
+    "enter": "Enter",
+    "tab": "Tab",
+    "escape": "Escape",
+    "esc": "Escape",
+    "space": "Space",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "home": "Home",
+    "end": "End",
+    "page up": "PageUp",
+    "pageup": "PageUp",
+    "page down": "PageDown",
+    "pagedown": "PageDown",
+    "arrow up": "ArrowUp",
+    "arrowup": "ArrowUp",
+    "arrow down": "ArrowDown",
+    "arrowdown": "ArrowDown",
+    "arrow left": "ArrowLeft",
+    "arrow right": "ArrowRight"
+  },
+  "role_words": [
+    "button", "link", "icon", "box", "checkbox", "field",
+    "input", "list", "dropdown", "menu", "tab", "option"
+  ]
+}
