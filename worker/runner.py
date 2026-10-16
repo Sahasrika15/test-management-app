@@ -291,6 +291,12 @@ def perform(page, step):
             raise RuntimeError(f"text '{parsed['text']}' not visible. {hint}")
 
 def run_test(browser, base_url, run_id, row, session_id):
+    steps = [s.strip() for s in row["steps"].split(";") if s.strip()]
+    unknown = [s for s in steps if match_step(s) is None]
+    if unknown:
+        listed = "; ".join(f"'{s}'" for s in unknown)
+        return "needs_review", None, f"Not run: the runner does not recognize {listed}", None, 0
+
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 

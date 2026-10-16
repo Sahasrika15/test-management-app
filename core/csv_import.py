@@ -73,8 +73,8 @@ def validate_csv_text(content):
         if not steps:
             errors.append("steps are empty")
         for step in steps:
-            if match_step(step) is None:
-                errors.append(f"step '{step}' is not a known pattern")
+            if not any(ch.isalpha() for ch in step):
+                errors.append(f"step '{step}' has no action words")
 
         if errors:
             result.errors.extend(f"Line {line}: {message}" for message in errors)
