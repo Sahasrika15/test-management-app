@@ -109,18 +109,56 @@ def _settle(strategy, locator, frame):
     return Discovery(MISSING, None, strategy, 0, f"no visible match via {strategy}", frame)
 
 
+def _flexible_pat(name):
+    clean = name.lstrip("* ").strip()
+    parts = re.findall(r"[A-Za-z][a-z]*|[0-9]+", clean)
+    if not parts:
+        parts = [clean]
+    joined = r"\s*".join(re.escape(p) for p in parts)
+    return re.compile(rf"^\*?\s*{joined}$", re.IGNORECASE)
+
+
 def _plain(frame, name):
+    pat = _flexible_pat(name)
     for exact in (True, False):
-        candidates = [
-            ("role:button", frame.get_by_role("button", name=name, exact=exact)),
-            ("role:link", frame.get_by_role("link", name=name, exact=exact)),
-            ("role:textbox", frame.get_by_role("textbox", name=name, exact=exact)),
-            ("role:combobox", frame.get_by_role("combobox", name=name, exact=exact)),
-            ("role:checkbox", frame.get_by_role("checkbox", name=name, exact=exact)),
-            ("label", frame.get_by_label(name, exact=exact)),
-            ("placeholder", frame.get_by_placeholder(name, exact=exact)),
-            ("text", frame.get_by_text(name, exact=exact)),
-        ]
+        if exact:
+            candidates = [
+                ("role:button", frame.get_by_role("button", name=name, exact=True)),
+                ("role:button-pat", frame.get_by_role("button", name=pat)),
+                ("role:link", frame.get_by_role("link", name=name, exact=True)),
+                ("role:link-pat", frame.get_by_role("link", name=pat)),
+                ("title", frame.get_by_title(name, exact=True)),
+                ("alt", frame.get_by_alt_text(name, exact=True)),
+                ("role:textbox", frame.get_by_role("textbox", name=name, exact=True)),
+                ("role:textbox-pat", frame.get_by_role("textbox", name=pat)),
+                ("role:combobox", frame.get_by_role("combobox", name=name, exact=True)),
+                ("role:combobox-pat", frame.get_by_role("combobox", name=pat)),
+                ("role:checkbox", frame.get_by_role("checkbox", name=name, exact=True)),
+                ("label", frame.get_by_label(name, exact=True)),
+                ("label-pat", frame.get_by_label(pat)),
+                ("placeholder", frame.get_by_placeholder(name, exact=True)),
+                ("placeholder-pat", frame.get_by_placeholder(pat)),
+                ("aria-label", frame.locator(f'[aria-label="{name}" i]')),
+                ("title-attr", frame.locator(f'[title="{name}" i]')),
+                ("text", frame.get_by_text(name, exact=True)),
+            ]
+        else:
+            candidates = [
+                ("role:button", frame.get_by_role("button", name=name, exact=False)),
+                ("role:link", frame.get_by_role("link", name=name, exact=False)),
+                ("title", frame.get_by_title(name, exact=False)),
+                ("alt", frame.get_by_alt_text(name, exact=False)),
+                ("role:textbox", frame.get_by_role("textbox", name=name, exact=False)),
+                ("role:combobox", frame.get_by_role("combobox", name=name, exact=False)),
+                ("role:checkbox", frame.get_by_role("checkbox", name=name, exact=False)),
+                ("label", frame.get_by_label(name, exact=False)),
+                ("placeholder", frame.get_by_placeholder(name, exact=False)),
+                ("aria-label", frame.locator(f'[aria-label*="{name}" i]')),
+                ("title-attr", frame.locator(f'[title*="{name}" i]')),
+                ("text", frame.get_by_text(name, exact=False)),
+            ]
+        if name.lower() == "home":
+            candidates.append(("oracle-home", frame.locator("#pt1\\:_UIShome, [id*='_UIShome']")))
         for strategy, locator in candidates:
             result = _settle(strategy, locator, frame)
             if result.status != MISSING:

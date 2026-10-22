@@ -62,8 +62,8 @@ def validate_csv_text(content):
             errors.append(f"test_case_id '{test_case_id}' is used more than once")
         if not name:
             errors.append("test_case_name is empty")
-        if not page.startswith("/"):
-            errors.append("page must start with / (for example /timesheet)")
+        if page and not page.startswith("/"):
+            errors.append("page must start with / (for example /timesheet) or be left empty")
         if enabled_text not in ("yes", "no"):
             errors.append("enabled must be Yes or No")
         if not expected:
@@ -84,7 +84,7 @@ def validate_csv_text(content):
         result.rows.append({
             "test_case_id": test_case_id,
             "test_case_name": name,
-            "page": page,
+            "page": page if page else "/",
             "steps": "; ".join(steps),
             "expected_result": expected,
             "enabled": enabled_text == "yes",

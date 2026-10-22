@@ -1,0 +1,502 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% set active_page = 'reports' %}
+
+{% block content %}
+
+<!-- ── Main container ── -->
+<div id="reportsMainContent">
+
+  <!-- ── Toolbar ─────────────────────────────────────────────────────────── -->
+  <div class="panel fade-in fade-in-2" style="padding:18px 24px;">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+
+      <!-- Run picker info -->
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div style="width:40px; height:40px; border-radius:12px; background:linear-gradient(135deg,var(--navy),var(--navy-soft));
+                    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+                    box-shadow:0 4px 12px rgba(31,42,68,.2);">
+          <i class="bi bi-bar-chart-line" style="color:var(--gold-light); font-size:1rem;"></i>
+        </div>
+        <div>
+          <p class="mb-0 fw-semibold" style="color:var(--navy); font-size:.95rem;">Run Report</p>
+          <p class="mb-0" style="font-size:.78rem; color:var(--muted);">Select a run to inspect results</p>
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <div id="runSelectWrapper" class="d-flex align-items-center gap-2">
+          <!-- Skeleton dropdown while loading -->
+          <div id="runSelectSkeleton" class="skeleton" style="width:280px; height:36px; border-radius:var(--radius-sm);"></div>
+
+          <!-- Real select once runs are loaded -->
+          <select id="runSelect" class="form-select form-select-sm" style="min-width:280px; display:none;" onchange="onRunSelectChange(this.value)">
+          </select>
+          <span id="runSpinner" class="d-none">
+            <span class="spinner-border spinner-border-sm" style="color:var(--gold);" role="status"></span>
+          </span>
+        </div>
+
+        <!-- Live indicator -->
+        <span id="liveIndicator" class="d-none align-items-center gap-1 px-3 py-1"
+              style="background:var(--brick-soft); border-radius:999px;">
+          <span class="live-dot"></span>
+          <span style="font-size:.78rem; font-weight:700; color:var(--brick);">LIVE</span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Empty state (shown if no runs exist) ── -->
+  <div id="emptyRunsState" class="panel text-center py-5 fade-in fade-in-2" style="max-width:520px; margin:0 auto; display:none;">
+    <div style="width:72px; height:72px; border-radius:22px; background:var(--neutral-soft);
+                display:flex; align-items:center; justify-content:center; margin:0 auto 20px;">
+      <i class="bi bi-bar-chart-line" style="font-size:2rem; color:var(--muted-light);"></i>
+    </div>
+    <h5 style="color:var(--navy); font-weight:600;">No runs yet</h5>
+    <p class="text-muted mb-4" style="font-size:.9rem;">Start a run from the Start Run tab and results will appear here.</p>
+    <a href="{{ url_for('start_run') }}" class="btn btn-verity px-4">
+      <i class="bi bi-play-circle me-2"></i>Start a Run
+    </a>
+  </div>
+
+  <!-- ── Results Section ── -->
+  <div id="resultsContentSection">
+
+    <!-- ── Summary metrics ───────────────────────────────────────────────────── -->
+    <div class="row g-3 mb-4 fade-in fade-in-3">
+      <div class="col-4">
+        <div class="metric-card">
+          <p class="metric-label"><i class="bi bi-collection me-1"></i>Tests in run</p>
+          <p class="metric-value" id="metricTotal">
+            <span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>
+          </p>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="metric-card">
+          <p class="metric-label"><i class="bi bi-check-circle me-1"></i>Passed</p>
+          <p class="metric-value" id="metricPassed">
+            <span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>
+          </p>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="metric-card" id="metricFailCard">
+          <p class="metric-label"><i class="bi bi-x-circle me-1"></i>Failed</p>
+          <p class="metric-value" id="metricFailed">
+            <span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Search + count ──────────────────────────────────────────────────── -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 fade-in fade-in-3">
+      <div class="input-group" style="max-width:340px;">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="search" id="searchBox" class="form-control" placeholder="Search by test ID or name…">
+      </div>
+      <p class="text-muted mb-0" style="font-size:.85rem;" id="countLabel">
+        Showing <strong id="shownCount">—</strong> of <strong id="totalCount">—</strong> tests
+      </p>
+    </div>
+
+    <!-- ── Skeleton grid (shown while data loads) ── -->
+    <div id="skeletonGrid" class="row g-3 fade-in">
+      <div class="col-md-6 col-xl-4">
+        <div class="result-card p-3">
+          <div class="skeleton mb-3" style="height:18px; width:55%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:90%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:75%;"></div>
+          <div class="skeleton" style="height:14px; width:45%;"></div>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-4">
+        <div class="result-card p-3">
+          <div class="skeleton mb-3" style="height:18px; width:50%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:85%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:70%;"></div>
+          <div class="skeleton" style="height:14px; width:40%;"></div>
+        </div>
+      </div>
+      <div class="col-md-6 col-xl-4">
+        <div class="result-card p-3">
+          <div class="skeleton mb-3" style="height:18px; width:60%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:92%;"></div>
+          <div class="skeleton mb-2" style="height:14px; width:65%;"></div>
+          <div class="skeleton" style="height:14px; width:50%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Real results grid ── -->
+    <div class="row g-3 fade-in fade-in-4" id="resultsGrid" style="display:none;">
+    </div>
+
+  </div><!-- /resultsContentSection -->
+
+</div><!-- /reportsMainContent -->
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let currentRunId = {{ initial_run_id | tojson }};
+  let currentRuns = [];
+  let pollInterval = null;
+
+  function getBadgeHtml(status) {
+    const map = {
+      'passed':       ['Passed',       'badge-passed'],
+      'failed':       ['Failed',       'badge-failed'],
+      'error':        ['Error',        'badge-error'],
+      'needs_review': ['Needs review', 'badge-needs_review'],
+      'queued':       ['Queued',       'badge-queued'],
+      'running':      ['Running…',     'badge-running'],
+    };
+    if (map[status]) {
+      return `<span class="badge-status ${map[status][1]}">${map[status][0]}</span>`;
+    }
+    const cap = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown';
+    return `<span class="badge-status badge-queued">${cap}</span>`;
+  }
+
+  function formatActual(r) {
+    const s = r.status;
+    if (s === 'passed') return '<span style="color:var(--emerald);">All steps completed successfully.</span>';
+    if (s === 'failed' || s === 'error' || s === 'needs_review') {
+      let msg = r.error_message || 'No reason was recorded.';
+      if (r.failed_step && !msg.toLowerCase().startsWith('step ')) {
+        msg = `Stopped at step ${r.failed_step}: ${msg}`;
+      }
+
+      const endedMatch = msg.match(/\(ended on (https?:\/\/[^\s\)]+)\)/i);
+      if (endedMatch) {
+        const cleanMsg = msg.replace(endedMatch[0], '').trim();
+        const url = endedMatch[1];
+        return `
+          <div class="text-break" style="word-break:break-word;">${escapeHtml(cleanMsg)}</div>
+          <div class="mt-1 small" style="font-size:0.75rem; color:var(--muted); opacity:0.85;">
+            <i class="bi bi-link-45deg me-1"></i>Ended on: 
+            <span class="text-break font-monospace" style="word-break:break-all;">${escapeHtml(url)}</span>
+          </div>
+        `;
+      }
+      return `<span class="text-break" style="word-break:break-word;">${escapeHtml(msg)}</span>`;
+    }
+    return '<span style="color:var(--muted-light);">Waiting to be picked up by the worker.</span>';
+  }
+
+  function renderResults(results) {
+    const grid = document.getElementById('resultsGrid');
+    if (!grid) return;
+
+    // Preserve open video state if polling re-renders
+    const openStates = {};
+    grid.querySelectorAll('.play-btn').forEach(btn => {
+      const container = btn.nextElementSibling;
+      const v = container?.querySelector('video');
+      if (container && !container.classList.contains('d-none')) {
+        openStates[btn.dataset.resultId] = {
+          time: v ? v.currentTime : 0,
+          paused: v ? v.paused : true
+        };
+      }
+    });
+
+    let html = '';
+    results.forEach(r => {
+      const dur = ((r.duration_ms || 0) / 1000);
+      const durText = dur > 0 ? `<span style="color:var(--navy);">${dur.toFixed(2)} s</span>` : '—';
+      const actual = formatActual(r);
+
+      const hasVideo = r.has_video || (r.video_path && r.video_path !== '');
+      const videoSrc = hasVideo ? (r.has_video ? '/video/' + r.id : r.video_path) : '';
+      let videoBlock = '';
+      if (hasVideo) {
+        videoBlock = `
+          <div class="mt-3">
+            <button class="btn btn-sm btn-outline-verity play-btn w-100"
+                    data-result-id="${r.id}"
+                    data-video-src="${escapeHtml(videoSrc)}"
+                    type="button">
+              <i class="bi bi-play-circle me-1"></i>Play recording
+            </button>
+            <div class="video-wrap d-none video-container">
+              <div class="video-loading-overlay" id="vload_${r.id}">
+                <div class="spinner-verity" style="width:1.8rem; height:1.8rem;"></div>
+              </div>
+              <video id="vplayer_${r.id}" controls preload="metadata" playsinline src="${escapeHtml(videoSrc)}"></video>
+            </div>
+          </div>
+        `;
+      } else {
+        videoBlock = `
+          <div class="mt-3 d-flex align-items-center gap-2" style="font-size:.8rem; color:var(--muted-light);">
+            <i class="bi bi-camera-video-off"></i>No recording available
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="col-md-6 col-xl-4 result-col"
+             data-id="${escapeHtml((r.test_case_id || '').toLowerCase())}"
+             data-name="${escapeHtml((r.test_case_name || '').toLowerCase())}">
+          <div class="result-card result-${r.status}">
+            <div class="d-flex align-items-start justify-content-between gap-2 mb-3">
+              <div class="flex-grow-1">
+                <p class="result-card-title mb-1">
+                  <code style="font-size:.75rem; background:rgba(31,42,68,.07); padding:2px 6px; border-radius:5px; color:var(--navy);">${escapeHtml(r.test_case_id)}</code>
+                </p>
+                <p class="result-card-title">${escapeHtml(r.test_case_name)}</p>
+              </div>
+              ${getBadgeHtml(r.status)}
+            </div>
+
+            <div class="result-meta">
+              <div class="mb-1 text-break"><b>Expected:</b> ${escapeHtml(r.expected_result || '—')}</div>
+              <div class="mb-2"><b>Actual:</b> ${actual}</div>
+              <div class="pt-1 border-top" style="border-color: rgba(31,42,68,0.08) !important;"><b>Duration:</b> ${durText}</div>
+            </div>
+
+            ${videoBlock}
+          </div>
+        </div>
+      `;
+    });
+
+    grid.innerHTML = html;
+    grid.style.display = 'flex';
+    document.getElementById('skeletonGrid').style.display = 'none';
+
+    // Restore any previously open video state
+    Object.keys(openStates).forEach(resId => {
+      const btn = grid.querySelector(`.play-btn[data-result-id="${resId}"]`);
+      if (btn) {
+        const container = btn.nextElementSibling;
+        const video = container?.querySelector('video');
+        if (container && video) {
+          container.classList.remove('d-none');
+          btn.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Hide recording';
+          video.currentTime = openStates[resId].time;
+          if (!openStates[resId].paused) {
+            video.play().catch(() => {});
+          }
+        }
+      }
+    });
+
+    attachVideoListeners();
+    applySearchFilter();
+  }
+
+  function attachVideoListeners() {
+    document.querySelectorAll('.play-btn').forEach(btn => {
+      // Hover pre-warm: starts browser connection before user clicks
+      btn.addEventListener('mouseenter', function() {
+        const container = this.nextElementSibling;
+        const video = container?.querySelector('video');
+        if (video && video.readyState === 0 && video.src) {
+          video.load();
+        }
+      }, { once: true });
+
+      btn.addEventListener('click', function() {
+        const container  = this.nextElementSibling;
+        const video      = container?.querySelector('video');
+        const overlay    = container?.querySelector('.video-loading-overlay');
+        const isOpen     = container && !container.classList.contains('d-none');
+
+        if (isOpen) {
+          container.classList.add('d-none');
+          if (video) { video.pause(); }
+          this.innerHTML = '<i class="bi bi-play-circle me-1"></i>Play recording';
+          return;
+        }
+
+        container.classList.remove('d-none');
+        this.innerHTML = '<i class="bi bi-stop-circle me-1"></i>Hide recording';
+
+        if (video) {
+          const hideOverlay = () => {
+            if (overlay) overlay.style.display = 'none';
+          };
+
+          if (!video.dataset.eventsBound) {
+            video.dataset.eventsBound = '1';
+            video.addEventListener('loadeddata', hideOverlay);
+            video.addEventListener('canplay', hideOverlay);
+            video.addEventListener('playing', hideOverlay);
+            video.addEventListener('timeupdate', hideOverlay);
+            video.addEventListener('error', () => {
+              if (overlay) overlay.innerHTML = '<span class="small text-muted p-2">Unable to play video</span>';
+            });
+          }
+
+          const targetSrc = this.dataset.videoSrc;
+          if (!video.src && targetSrc) {
+            video.src = targetSrc;
+          }
+
+          // If video already has buffered frames, hide spinner immediately
+          if (video.readyState >= 2) {
+            hideOverlay();
+          } else if (overlay) {
+            overlay.style.display = 'flex';
+          }
+
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              hideOverlay();
+            }).catch(err => {
+              console.warn('Playback note:', err);
+              hideOverlay();
+            });
+          }
+        }
+      });
+    });
+  }
+
+  function loadReportData(runId, isPolling = false) {
+    if (!isPolling && window.startProgressBar) window.startProgressBar();
+    if (!isPolling) document.getElementById('runSpinner')?.classList.remove('d-none');
+
+    const url = runId ? `/api/reports?run_id=${runId}` : '/api/reports';
+
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        const runs = data.runs || [];
+        currentRuns = runs;
+
+        if (runs.length === 0) {
+          document.getElementById('emptyRunsState').style.display = 'block';
+          document.getElementById('resultsContentSection').style.display = 'none';
+          document.getElementById('runSelectWrapper').style.display = 'none';
+          return;
+        }
+
+        document.getElementById('emptyRunsState').style.display = 'none';
+        document.getElementById('resultsContentSection').style.display = 'block';
+
+        currentRunId = data.selected_run;
+
+        // Populate dropdown
+        const select = document.getElementById('runSelect');
+        const skeleton = document.getElementById('runSelectSkeleton');
+        select.innerHTML = '';
+        runs.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r.id;
+          opt.textContent = `Run ${r.id} — ${r.app_url} (${r.status})`;
+          if (r.id === currentRunId) opt.selected = true;
+          select.appendChild(opt);
+        });
+        skeleton.style.display = 'none';
+        select.style.display = 'block';
+
+        // Update metrics
+        const total = data.results ? data.results.length : 0;
+        document.getElementById('metricTotal').textContent = total;
+        document.getElementById('metricPassed').textContent = data.passed_n || 0;
+        document.getElementById('metricFailed').textContent = data.failed_n || 0;
+        document.getElementById('totalCount').textContent = total;
+
+        const fc = document.getElementById('metricFailCard');
+        if (fc) {
+          (data.failed_n > 0) ? fc.classList.add('fail') : fc.classList.remove('fail');
+        }
+
+        // Render result cards
+        renderResults(data.results || []);
+
+        // Check if run is live
+        const activeRun = runs.find(r => r.id === currentRunId);
+        const isLive = activeRun && (activeRun.status === 'queued' || activeRun.status === 'running');
+        setLiveIndicator(isLive);
+
+        if (isLive && !pollInterval) {
+          pollInterval = setInterval(() => {
+            loadReportData(currentRunId, true);
+          }, 3000);
+        } else if (!isLive && pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      })
+      .catch(err => {
+        console.error('Error loading report:', err);
+      })
+      .finally(() => {
+        if (!isPolling && window.finishProgressBar) window.finishProgressBar();
+        document.getElementById('runSpinner')?.classList.add('d-none');
+      });
+  }
+
+  function onRunSelectChange(newRunId) {
+    if (!newRunId) return;
+    currentRunId = parseInt(newRunId, 10);
+
+    // Show skeleton while loading new run
+    document.getElementById('resultsGrid').style.display = 'none';
+    document.getElementById('skeletonGrid').style.display = 'flex';
+    document.getElementById('metricTotal').innerHTML = '<span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>';
+    document.getElementById('metricPassed').innerHTML = '<span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>';
+    document.getElementById('metricFailed').innerHTML = '<span class="skeleton skeleton-text" style="width:50px;">&nbsp;</span>';
+
+    // Update browser URL without reloading page
+    window.history.pushState(null, '', '/reports?run_id=' + newRunId);
+
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+
+    loadReportData(currentRunId);
+  }
+
+  function setLiveIndicator(active) {
+    const el = document.getElementById('liveIndicator');
+    if (!el) return;
+    active ? el.classList.remove('d-none') : el.classList.add('d-none');
+    el.style.display = active ? 'flex' : '';
+  }
+
+  function applySearchFilter() {
+    const searchBox = document.getElementById('searchBox');
+    if (!searchBox) return;
+    const q = searchBox.value.trim().toLowerCase();
+    let shown = 0;
+    const cols = document.querySelectorAll('.result-col');
+    cols.forEach(col => {
+      const match = !q || (col.dataset.id && col.dataset.id.includes(q)) || (col.dataset.name && col.dataset.name.includes(q));
+      col.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    const s = document.getElementById('shownCount');
+    if (s) s.textContent = shown;
+  }
+
+  document.getElementById('searchBox')?.addEventListener('input', applySearchFilter);
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Load report data immediately on mount
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => loadReportData(currentRunId));
+  } else {
+    loadReportData(currentRunId);
+  }
+</script>
+{% endblock %}

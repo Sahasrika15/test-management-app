@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Upload CSV{% endblock %}
+{% set active_page = 'upload' %}
+
+{% block content %}
+<div class="row justify-content-center fade-in fade-in-2">
+  <div class="col-lg-7 col-xl-6">
+    <div class="panel">
+
+      <!-- Header -->
+      <div class="d-flex align-items-center gap-3 mb-4">
+        <div style="width:48px; height:48px; border-radius:14px; background:var(--gold-soft);
+                    display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+          <i class="bi bi-cloud-upload" style="font-size:1.5rem; color:var(--gold);"></i>
+        </div>
+        <div>
+          <p class="section-title mb-0">Upload Test Cases</p>
+          <p class="section-hint mb-0">Import your CSV with plain-English steps</p>
+        </div>
+      </div>
+
+      <hr class="verity-divider">
+
+      <!-- Template download -->
+      <div class="d-flex align-items-center justify-content-between p-3 mb-4"
+        style="background:var(--ivory); border:1px solid var(--line-soft); border-radius:var(--radius-sm);">
+        <div>
+          <p class="fw-semibold mb-0" style="font-size:.9rem; color:var(--navy);">CSV Template</p>
+          <p class="mb-0" style="font-size:.8rem; color:var(--muted);">Download, fill in with your steps, then upload
+          </p>
+        </div>
+        <a href="{{ url_for('download_template') }}" class="btn btn-outline-verity flex-shrink-0">
+          <i class="bi bi-download me-1"></i>Download
+        </a>
+      </div>
+
+      <!-- Upload form -->
+      <form method="post" enctype="multipart/form-data" id="uploadForm" novalidate>
+
+        <!-- Drop zone -->
+        <div class="upload-zone mb-4" id="uploadZone" role="button" tabindex="0"
+          onclick="document.getElementById('csvFile').click()"
+          onkeydown="if(event.key==='Enter'||event.key===' ') document.getElementById('csvFile').click()">
+          <i class="bi bi-file-earmark-spreadsheet upload-icon" id="uploadIcon"></i>
+          <p class="fw-semibold mt-3 mb-1" style="color:var(--navy); font-size:.95rem;">
+            Drop your CSV here, or <span style="color:var(--gold); text-decoration:underline;">browse</span>
+          </p>
+          <p class="text-muted mb-3" style="font-size:.82rem;" id="fileHint">Accepts .csv files only</p>
+          <div id="fileChosen" class="d-none">
+            <span class="badge py-2 px-3"
+              style="background:var(--navy); color:#fff; border-radius:999px; font-size:.82rem;">
+              <i class="bi bi-file-earmark-check me-1"></i>
+              <span id="fileNameLabel"></span>
+            </span>
+          </div>
+          <input type="file" id="csvFile" name="csv_file" accept=".csv" class="d-none">
+        </div>
+
+        <!-- Upload button -->
+        <button type="submit" class="btn btn-verity w-100 py-3" id="uploadBtn" disabled>
+          <i class="bi bi-cloud-upload me-2"></i>Upload &amp; Import
+        </button>
+      </form>
+
+      <!-- Errors -->
+      {% if errors %}
+      <div class="mt-4 p-4"
+        style="background:var(--brick-faint); border:1px solid var(--brick-soft); border-radius:var(--radius); border-left:4px solid var(--brick);">
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <i class="bi bi-exclamation-triangle-fill" style="color:var(--brick); font-size:1.1rem;"></i>
+          <strong style="color:var(--brick);">Fix these rows and upload again</strong>
+        </div>
+        <ul class="mb-0 ps-3" style="font-size:.85rem; color:var(--brick-mid);">
+          {% for err in errors %}
+          <li class="mb-1">{{ err }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <!-- CSV format guide -->
+      <hr class="verity-divider">
+      <p class="fw-semibold mb-3"
+        style="font-size:.82rem; color:var(--muted); text-transform:uppercase; letter-spacing:.8px;">
+        <i class="bi bi-info-circle me-1"></i>Expected Columns
+      </p>
+      <div class="row g-2">
+        {% set cols = [
+        ('test_case_id', 'bi-hash', 'Unique identifier, e.g. TC001'),
+        ('test_case_name', 'bi-type', 'Short description of the test'),
+        ('page', 'bi-link-45deg', 'URL path, must start with /'),
+        ('steps', 'bi-list-ol', 'Steps separated by semicolons'),
+        ('expected_result', 'bi-check-square', 'What success looks like'),
+        ('enabled', 'bi-toggle-on', 'Yes or No'),
+        ] %}
+        {% for col, icon, desc in cols %}
+        <div class="col-12">
+          <div class="d-flex align-items-start gap-2 p-2" style="border-radius:8px;">
+            <i class="bi {{ icon }} mt-1 flex-shrink-0" style="color:var(--gold); font-size:.9rem;"></i>
+            <div>
+              <code style="font-size:.8rem; color:var(--navy);">{{ col }}</code>
+              <span class="text-muted ms-2" style="font-size:.78rem;">{{ desc }}</span>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+    </div><!-- /panel -->
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const inp = document.getElementById('csvFile');
+  const btn = document.getElementById('uploadBtn');
+  const zone = document.getElementById('uploadZone');
+  const icon = document.getElementById('uploadIcon');
+  const chosen = document.getElementById('fileChosen');
+  const label = document.getElementById('fileNameLabel');
+  const hint = document.getElementById('fileHint');
+
+  function onFileSelected(file) {
+    if (!file) return;
+    label.textContent = file.name;
+    chosen.classList.remove('d-none');
+    hint.classList.add('d-none');
+    icon.className = 'bi bi-file-earmark-check upload-icon';
+    icon.style.color = 'var(--emerald)';
+    btn.disabled = false;
+  }
+
+  inp.addEventListener('change', () => onFileSelected(inp.files[0]));
+
+  /* Drag & drop */
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      inp.files = dt.files;
+      onFileSelected(file);
+    }
+  });
+
+  /* Button loading state */
+  document.getElementById('uploadForm').addEventListener('submit', function () {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span>Importing…';
+  });
+</script>
+{% endblock %}

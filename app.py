@@ -163,12 +163,38 @@ def status_style(value):
     return f"color: {MUTED};"
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_dashboard_stats():
+    return get_dashboard_stats()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_list_runs():
+    return list_runs()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_list_test_cases(source=None):
+    return list_test_cases(source)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_list_sources():
+    return list_sources()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_run_results(run_id):
+    return get_run_results(run_id)
+
+
 def go_to(page_name):
     st.session_state["nav"] = page_name
 
 
 def confirm_import(content, source_name):
     _, saved = import_csv_text(content, source_file=source_name)
+    st.cache_data.clear()
     st.session_state["nav"] = "Test cases"
     st.session_state["view_source_box"] = source_name
     st.session_state["flash"] = f"Saved {saved} test case(s) from {source_name}."
@@ -177,7 +203,7 @@ def confirm_import(content, source_name):
 def start_run():
     app_url = st.session_state.get("start_url", "").strip()
     source = st.session_state.get("view_source_box")
-    enabled = [c["test_case_id"] for c in list_test_cases(source) if c["enabled"]]
+    enabled = [c["test_case_id"] for c in cached_list_test_cases(source) if c["enabled"]]
     selected = [c for c in st.session_state.get("start_cases", enabled) if c in enabled]
     needs_login = bool(st.session_state.get("needs_login"))
     username = st.session_state.get("login_user", "").strip()
@@ -196,6 +222,7 @@ def start_run():
 
     try:
         run_id, queued = create_run(app_url, selected)
+        st.cache_data.clear()
     except ValueError as error:
         st.session_state["start_error"] = str(error)
         return
@@ -284,7 +311,7 @@ def result_card(r, run_id):
 def render_reports(live):
     with st.container(border=True):
         st.markdown('<p class="tm-section">Run report</p>', unsafe_allow_html=True)
-        runs = [r for r in list_runs() if r["total"] > 0]
+        runs = [r for r in (list_runs() if live else cached_list_runs()) if r["total"] > 0]
         if not runs:
             st.info("No runs yet. Start one from the Start run tab.")
             return
@@ -292,13 +319,14 @@ def render_reports(live):
         active = any(r["status"] in ("queued", "running") for r in runs)
         if live and not active:
             # The run has finished, so switch back to the static view and stop polling.
+            st.cache_data.clear()
             st.rerun(scope="app")
 
         top, _ = st.columns([4, 1])
         with top:
             labels = {r["id"]: f"Run {r['id']}  {r['app_url']}  ({r['status']})" for r in runs}
             run_id = st.selectbox("Run", list(labels), format_func=lambda i: labels[i], key="rep_run")
-        results = get_run_results(run_id)
+        results = get_run_results(run_id) if live else cached_run_results(run_id)
 
         passed_n = sum(1 for r in results if r["status"] == "passed")
         failed_n = sum(1 for r in results if r["status"] == "failed")
@@ -345,7 +373,7 @@ def static_reports():
     render_reports(live=False)
 
 
-runs_with_results = [r for r in list_runs() if r["total"] > 0]
+runs_with_results = [r for r in cached_list_runs() if r["total"] > 0]
 _last_at = runs_with_results[0]["created_at"] if runs_with_results else None
 _last_label = f"Last run: {_last_at:%d %b, %H:%M}" if _last_at else "No runs yet"
 
@@ -362,13 +390,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.session_state.setdefault("nav", "Dashboard")
-page = st.segmented_control(
-    "Section",
-    ["Dashboard", "Upload CSV", "Test cases", "Start run", "Reports"],
-    key="nav",
-    label_visibility="collapsed",
-) or "Dashboard"
+col_nav, col_refresh = st.columns([11, 1])
+with col_nav:
+    st.session_state.setdefault("nav", "Dashboard")
+    page = st.segmented_control(
+        "Section",
+        ["Dashboard", "Upload CSV", "Test cases", "Start run", "Reports"],
+        key="nav",
+        label_visibility="collapsed",
+    ) or "Dashboard"
+with col_refresh:
+    if st.button("🔄 Sync", help="Clear cache and refresh from Neon database"):
+        st.cache_data.clear()
+        st.rerun()
 
 flash = st.session_state.pop("flash", None)
 if flash:
@@ -376,7 +410,7 @@ if flash:
 
 
 if page == "Dashboard":
-    stats = get_dashboard_stats()
+    stats = cached_dashboard_stats()
     t = stats["totals"]
     passed = int(t["passed"])
     failed = int(t["failed"])
@@ -472,7 +506,7 @@ if page == "Upload CSV":
         st.markdown('<p class="tm-section">Upload test cases</p>', unsafe_allow_html=True)
         st.markdown(
             '<p class="tm-hint">Download the template, fill it in with plain English steps, '
-            "then upload it here.</p>",
+            "then upload it here. The <code>page</code> column is optional—leave it blank to start from the home page and navigate using UI clicks.</p>",
             unsafe_allow_html=True,
         )
         st.download_button(
@@ -506,7 +540,7 @@ if page == "Test cases":
             '<p class="tm-hint">Turn a test case on or off. The change saves immediately.</p>',
             unsafe_allow_html=True,
         )
-        sources = list_sources()
+        sources = cached_list_sources()
         if not sources:
             st.info("No test cases yet. Upload a CSV in the Upload CSV tab.")
         else:
@@ -525,7 +559,7 @@ if page == "Test cases":
                 format_func=lambda c: names[c],
                 key="view_source_box",
             )
-            cases = list_test_cases(view)
+            cases = cached_list_test_cases(view)
             if not cases:
                 st.info("This file has no test cases.")
             else:
@@ -543,6 +577,7 @@ if page == "Test cases":
                     ].iloc[0]
                     if bool(row["enabled"]) != bool(original):
                         set_enabled(row["test_case_id"], bool(row["enabled"]))
+                        st.cache_data.clear()
                         st.rerun()
         st.button("Go to Start run", on_click=go_to, args=("Start run",))
 
@@ -551,7 +586,7 @@ if page == "Start run":
     with st.container(border=True):
         st.markdown('<p class="tm-section">Start a run</p>', unsafe_allow_html=True)
         source = st.session_state.get("view_source_box")
-        cases = list_test_cases(source) if source else list_test_cases()
+        cases = cached_list_test_cases(source) if source else cached_list_test_cases()
         enabled_ids = [c["test_case_id"] for c in cases if c["enabled"]]
         st.text_input(
             "Application URL",
@@ -578,7 +613,7 @@ if page == "Reports":
     # Poll every 2 seconds only while a run is queued or running. Otherwise show a static view.
     any_active = any(
         r["status"] in ("queued", "running")
-        for r in list_runs()
+        for r in cached_list_runs()
         if r["total"] > 0
     )
     if any_active:

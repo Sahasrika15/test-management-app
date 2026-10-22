@@ -41,15 +41,20 @@ def mask_env(text, names):
 
 
 def clean_base_url(url):
-    parts = urlsplit((url or "").strip())
+    raw = (url or "").strip()
+    if raw.startswith("http://"):
+        raw = "https://" + raw[len("http://") :]
+    elif not raw.startswith("https://"):
+        raw = "https://" + raw
+    parts = urlsplit(raw)
     path = parts.path.rstrip("/")
-    return f"{parts.scheme}://{parts.netloc}{path}"
+    return f"https://{parts.netloc}{path}"
 
 
 def page_url(base_url, page_path):
-    page_path = "/" + page_path.strip("/")
+    sub = "/" + page_path.strip("/") if page_path.strip("/") else ""
     base = base_url.rstrip("/")
-    return base if base.endswith(page_path) else base + page_path
+    return (base + sub) if sub else (base + "/")
 
 
 def with_session(url, session_id):
@@ -70,9 +75,9 @@ def is_login_row(row):
 
 def build_plans(row, base_url, session_id=None):
     plans = []
-    if row["page"].strip():
-        target = with_session(page_url(base_url, row["page"]), session_id)
-        plans.append(interpret("Go to " + target))
+    page_path = (row.get("page") or "").strip()
+    target = with_session(page_url(base_url, page_path), session_id)
+    plans.append(interpret("Go to " + target))
     plans.extend(interpret_steps(resolve(row["steps"])))
     return plans
 
@@ -84,7 +89,7 @@ def run_test(browser, base_url, run_id, row, login_state=None, session_id=None, 
     SCREEN_DIR.mkdir(parents=True, exist_ok=True)
 
     names = PLACEHOLDER.findall(row["steps"])
-    offset = 1 if row["page"].strip() else 0
+    offset = 1
     plans = build_plans(row, base_url, session_id)
 
     for number, plan in enumerate(plans, start=1):
@@ -94,11 +99,14 @@ def run_test(browser, base_url, run_id, row, login_state=None, session_id=None, 
     options = {
         "record_video_dir": str(VIDEO_DIR),
         "record_video_size": {"width": 1280, "height": 720},
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "viewport": {"width": 1280, "height": 720},
     }
     if login_state:
         options["storage_state"] = login_state
     context = browser.new_context(**options)
     page = context.new_page()
+    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     video = page.video
     started = time.time()
 
@@ -133,6 +141,11 @@ def run_test(browser, base_url, run_id, row, login_state=None, session_id=None, 
         try:
             tmp_path = Path(video.path())
             video_bytes = tmp_path.read_bytes()
+            if row.get("id"):
+                try:
+                    (VIDEO_DIR / f"result_{row['id']}.webm").write_bytes(video_bytes)
+                except Exception:
+                    pass
             tmp_path.unlink(missing_ok=True)
         except Exception:
             video_bytes = None
@@ -175,8 +188,12 @@ def process_run(run_id):
         logins = [r for r in rows if is_login_row(r)]
         tests = [r for r in rows if not is_login_row(r)]
 
+        is_headless = os.getenv("HEADLESS", "false").lower() in ("true", "1", "yes")
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=is_headless,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
             try:
                 state, session, login_error = None, None, None
 

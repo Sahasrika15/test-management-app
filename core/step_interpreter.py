@@ -98,7 +98,10 @@ def _clean_target(text):
         words = words[1:]
     if len(words) > 1 and words[-1].lower() in ROLE_WORDS:
         words = words[:-1]
-    return " ".join(words)
+    res = " ".join(words)
+    if res.startswith("*"):
+        res = res.lstrip("* ").strip()
+    return res
 
 
 def _build(step, spec, target, value=""):
@@ -171,9 +174,18 @@ def _plain_action(step, spec, rest):
     value = ""
     target = rest
     if any(p in VALUE_PARAMS for p in spec.signature.parameters):
-        parts = SEPARATOR.split(rest, maxsplit=1)
-        if len(parts) == 2:
-            value, target = parts[0].strip(), parts[1]
+        if spec.name == "select_option":
+            m = re.search(r"\s+from\s+", rest, re.IGNORECASE)
+            if m:
+                value, target = rest[:m.start()].strip(), rest[m.end():]
+            else:
+                parts = SEPARATOR.split(rest, maxsplit=1)
+                if len(parts) == 2:
+                    value, target = parts[0].strip(), parts[1]
+        else:
+            parts = SEPARATOR.split(rest, maxsplit=1)
+            if len(parts) == 2:
+                value, target = parts[0].strip(), parts[1]
     if not (spec.owner == "page" and spec.name == "goto"):
         target = _clean_target(target)
     return _build(step, spec, target.strip(), value)

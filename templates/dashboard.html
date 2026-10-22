@@ -1,0 +1,444 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% set active_page = 'dashboard' %}
+
+{% block content %}
+
+<!-- ── Summary metrics ─────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4 fade-in fade-in-2">
+  <div class="col-6 col-xl-3">
+    <div class="metric-card">
+      <p class="metric-label"><i class="bi bi-collection me-1"></i>Enabled test cases</p>
+      <p class="metric-value" id="valEnabledCases">
+        <span class="skeleton skeleton-text" style="width:85px;">&nbsp;</span>
+      </p>
+      <p class="metric-trend">Total uploaded cases</p>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="metric-card">
+      <p class="metric-label"><i class="bi bi-play-circle me-1"></i>Total runs</p>
+      <p class="metric-value" id="valTotalRuns">
+        <span class="skeleton skeleton-text" style="width:60px;">&nbsp;</span>
+      </p>
+      <p class="metric-trend">All time executions</p>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="metric-card" id="cardPassRate">
+      <p class="metric-label"><i class="bi bi-patch-check me-1"></i>Pass rate</p>
+      <p class="metric-value" id="valPassRate">
+        <span class="skeleton skeleton-text" style="width:70px;">&nbsp;</span>
+      </p>
+      <p class="metric-trend">Across all runs</p>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="metric-card">
+      <p class="metric-label"><i class="bi bi-stopwatch me-1"></i>Avg duration</p>
+      <p class="metric-value" id="valAvgDuration">
+        <span class="skeleton skeleton-text" style="width:75px;">&nbsp;</span>
+      </p>
+      <p class="metric-trend">Per test case</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Pass rate bar ─────────────────────────────────────────────────────── -->
+<div id="passRatePanel" class="panel fade-in fade-in-3 py-4" style="display:none;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <p class="section-title mb-0" style="font-size:1.1rem;">Overall pass rate</p>
+    </div>
+    <div class="d-flex gap-3 align-items-center">
+      <span class="d-flex align-items-center gap-1" style="font-size:.82rem; color:var(--emerald); font-weight:600;">
+        <i class="bi bi-check-circle-fill"></i> <span id="valPassedCount">0</span> passed
+      </span>
+      <span class="d-flex align-items-center gap-1" style="font-size:.82rem; color:var(--brick); font-weight:600;">
+        <i class="bi bi-x-circle-fill"></i> <span id="valFailedCount">0</span> failed
+      </span>
+    </div>
+  </div>
+  <div class="progress" style="height:12px;">
+    <div id="passProgressBar" class="progress-bar" role="progressbar"
+         style="width:0%; transition: width 0.8s ease;"
+         aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+  </div>
+</div>
+
+<!-- ── Latest run notification ── -->
+<p id="latestRunNotice" class="section-hint mb-3 fade-in fade-in-3" style="display:none;"></p>
+
+<!-- ── Charts row ────────────────────────────────────────────────────────── -->
+<div class="row g-4 mb-4 fade-in fade-in-3">
+  <div class="col-lg-8">
+    <div class="panel h-100" style="min-height:320px;">
+      <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+          <p class="section-title mb-0">Recent runs</p>
+          <p class="section-hint">Pass / fail breakdown per run</p>
+        </div>
+        <span id="trendRunsBadge" class="badge-status badge-passed py-1 px-3" style="display:none;"></span>
+      </div>
+
+      <!-- Trend Chart Skeleton Loader -->
+      <div id="trendChartSkeleton" class="d-flex flex-column justify-content-center align-items-center h-100" style="min-height:220px;">
+        <div class="skeleton" style="width:100%; height:200px; border-radius:12px;"></div>
+      </div>
+
+      <!-- Trend Chart Container -->
+      <div id="trendChartContainer" style="position:relative; height:220px; display:none;">
+        <canvas id="trendChart"></canvas>
+      </div>
+
+      <!-- Trend Empty State -->
+      <div id="trendChartEmpty" class="d-flex flex-column align-items-center justify-content-center" style="height:220px; display:none;">
+        <i class="bi bi-bar-chart-line text-muted" style="font-size:2.8rem; opacity:.3;"></i>
+        <p class="text-muted mt-3 mb-0" style="font-size:.9rem;">No runs yet. Start one from the <a href="{{ url_for('start_run') }}" style="color:var(--gold);">Start run</a> tab.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="panel h-100 d-flex flex-column" style="min-height:320px;">
+      <p class="section-title mb-0">Result split</p>
+      <p class="section-hint">All-time distribution</p>
+
+      <!-- Split Chart Skeleton Loader -->
+      <div id="splitChartSkeleton" class="flex-grow-1 d-flex align-items-center justify-content-center" style="min-height:220px;">
+        <div class="skeleton" style="width:180px; height:180px; border-radius:50%;"></div>
+      </div>
+
+      <!-- Split Chart Container -->
+      <div id="splitChartContainer" class="flex-grow-1 d-flex align-items-center justify-content-center" style="display:none;">
+        <div style="position:relative; width:100%; max-width:220px;">
+          <canvas id="splitChart"></canvas>
+          <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; top:-24px;">
+            <span id="splitChartCenterRate" style="font-family:var(--serif); font-size:1.9rem; color:var(--navy); line-height:1;">—</span>
+            <span style="font-size:.72rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.8px;">pass rate</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Split Empty State -->
+      <div id="splitChartEmpty" class="flex-grow-1 d-flex align-items-center justify-content-center" style="display:none;">
+        <div class="text-center">
+          <i class="bi bi-pie-chart text-muted" style="font-size:2.8rem; opacity:.3;"></i>
+          <p class="text-muted mt-3 mb-0" style="font-size:.9rem;">No results yet.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Latest failures ──────────────────────────────────────────────────── -->
+<div class="panel fade-in fade-in-4">
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <p class="section-title mb-0">Latest failures</p>
+      <p class="section-hint">Most recent 10 failed test cases</p>
+    </div>
+    <span id="failuresBadge" class="badge-status badge-failed py-1 px-3" style="display:none;"></span>
+  </div>
+
+  <!-- Failures Skeleton Loader -->
+  <div id="failuresSkeleton">
+    <div class="skeleton mb-2" style="width:100%; height:45px; border-radius:8px;"></div>
+    <div class="skeleton mb-2" style="width:100%; height:45px; border-radius:8px;"></div>
+    <div class="skeleton" style="width:100%; height:45px; border-radius:8px;"></div>
+  </div>
+
+  <!-- Failures Table Container -->
+  <div id="failuresTableWrap" class="table-responsive" style="display:none;">
+    <table class="table verity-table mb-0">
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Test Case</th>
+          <th>Step</th>
+          <th>Error</th>
+          <th>When</th>
+        </tr>
+      </thead>
+      <tbody id="failuresTableBody">
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Failures Empty State -->
+  <div id="failuresEmptyState" class="d-flex align-items-center gap-3 p-3" style="background:var(--emerald-soft); border-radius:var(--radius-sm); display:none !important;">
+    <i class="bi bi-check-circle-fill" style="color:var(--emerald); font-size:1.4rem; flex-shrink:0;"></i>
+    <p class="mb-0 fw-semibold" style="color:var(--emerald);">No failures recorded across all runs.</p>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const NAVY    = '#1F2A44';
+  const BRICK   = '#9B3530';
+  const GOLD    = '#C4944A';
+  const EMERALD = '#1A6B4A';
+
+  Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+  Chart.defaults.color = '#6B7280';
+
+  let trendChartInstance = null;
+  let splitChartInstance = null;
+
+  function formatIsoDate(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ', ' +
+             d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch(e) {
+      return isoStr;
+    }
+  }
+
+  /* Async Hydration: Load data after HTML page shell is rendered */
+  function loadDashboardData() {
+    if (window.startProgressBar) window.startProgressBar();
+
+    fetch('/api/dashboard')
+      .then(response => {
+        if (!response.ok) throw new Error('Network error');
+        return response.json();
+      })
+      .then(data => {
+        const t = data.totals || {};
+        const passed = data.passed || 0;
+        const failed = data.failed || 0;
+        const judged = data.judged || 0;
+        const passRate = data.pass_rate || '—';
+        const avgSec = data.avg_seconds || 0;
+
+        // 1. Update metric cards
+        document.getElementById('valEnabledCases').innerHTML =
+          `${t.enabled_cases || 0}<span style="font-size:1.2rem; color:var(--muted-light);"> / ${t.total_cases || 0}</span>`;
+
+        document.getElementById('valTotalRuns').textContent = t.total_runs || 0;
+        document.getElementById('valPassRate').textContent = passRate;
+        document.getElementById('valAvgDuration').innerHTML =
+          `${avgSec.toFixed(1)}<span style="font-size:1.2rem; color:var(--muted-light);">s</span>`;
+
+        if (judged > 0 && failed > passed) {
+          document.getElementById('cardPassRate').classList.add('fail');
+        } else {
+          document.getElementById('cardPassRate').classList.remove('fail');
+        }
+
+        // 2. Update Header Badge
+        if (data.last_label) {
+          const badgeText = document.getElementById('headerLastRunText');
+          if (badgeText) badgeText.textContent = data.last_label;
+        }
+
+        // 3. Overall pass rate bar
+        if (judged > 0) {
+          document.getElementById('passRatePanel').style.display = 'block';
+          document.getElementById('valPassedCount').textContent = passed;
+          document.getElementById('valFailedCount').textContent = failed;
+          const pct = Math.round((passed / judged) * 100);
+          const bar = document.getElementById('passProgressBar');
+          bar.style.width = pct + '%';
+          bar.setAttribute('aria-valuenow', pct);
+        } else {
+          document.getElementById('passRatePanel').style.display = 'none';
+        }
+
+        // 4. Latest run notice
+        const trend = data.trend || [];
+        if (trend.length > 0) {
+          const last = trend[trend.length - 1];
+          const notice = document.getElementById('latestRunNotice');
+          notice.innerHTML = `<i class="bi bi-info-circle me-1"></i>Latest: <strong>Run ${last.run_id}</strong> against <strong>${escapeHtml(last.app_url || '')}</strong> — ${formatIsoDate(last.created_at_iso)}.`;
+          notice.style.display = 'block';
+        }
+
+        // 5. Trend Chart
+        const trendSkeleton = document.getElementById('trendChartSkeleton');
+        const trendContainer = document.getElementById('trendChartContainer');
+        const trendEmpty = document.getElementById('trendChartEmpty');
+        const trendBadge = document.getElementById('trendRunsBadge');
+
+        trendSkeleton.style.display = 'none';
+        if (trend.length > 0) {
+          trendContainer.style.display = 'block';
+          trendEmpty.style.display = 'none';
+          trendBadge.textContent = `Last ${trend.length} runs`;
+          trendBadge.style.display = 'inline-block';
+
+          const ctx = document.getElementById('trendChart').getContext('2d');
+          if (trendChartInstance) trendChartInstance.destroy();
+          trendChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: trend.map(r => 'Run ' + r.run_id),
+              datasets: [
+                {
+                  label: 'Passed',
+                  data: trend.map(r => parseInt(r.passed || 0, 10)),
+                  backgroundColor: NAVY,
+                  borderRadius: 6,
+                  borderSkipped: false,
+                },
+                {
+                  label: 'Failed',
+                  data: trend.map(r => parseInt(r.failed || 0, 10)),
+                  backgroundColor: BRICK,
+                  borderRadius: 6,
+                  borderSkipped: false,
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: { duration: 600 },
+              interaction: { mode: 'index', intersect: false },
+              plugins: {
+                legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle', padding: 18, font: { size: 12 } } },
+                tooltip: {
+                  backgroundColor: '#1F2A44',
+                  titleColor: '#fff',
+                  bodyColor: 'rgba(255,255,255,.8)',
+                  padding: 12,
+                  cornerRadius: 10,
+                }
+              },
+              scales: {
+                x: { grid: { display: false }, border: { display: false } },
+                y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'rgba(228,220,203,.5)' }, border: { display: false } }
+              }
+            }
+          });
+        } else {
+          trendContainer.style.display = 'none';
+          trendEmpty.style.display = 'flex';
+          trendBadge.style.display = 'none';
+        }
+
+        // 6. Split Doughnut Chart
+        const splitSkeleton = document.getElementById('splitChartSkeleton');
+        const splitContainer = document.getElementById('splitChartContainer');
+        const splitEmpty = document.getElementById('splitChartEmpty');
+
+        splitSkeleton.style.display = 'none';
+        if (judged > 0) {
+          splitContainer.style.display = 'flex';
+          splitEmpty.style.display = 'none';
+          document.getElementById('splitChartCenterRate').textContent = passRate;
+
+          const ctxSplit = document.getElementById('splitChart').getContext('2d');
+          if (splitChartInstance) splitChartInstance.destroy();
+          splitChartInstance = new Chart(ctxSplit, {
+            type: 'doughnut',
+            data: {
+              labels: ['Passed', 'Failed'],
+              datasets: [{
+                data: [passed, failed],
+                backgroundColor: [EMERALD, BRICK],
+                borderWidth: 0,
+                hoverOffset: 8,
+              }]
+            },
+            options: {
+              cutout: '72%',
+              animation: { duration: 600 },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: '#1F2A44',
+                  titleColor: '#fff',
+                  bodyColor: 'rgba(255,255,255,.8)',
+                  padding: 12,
+                  cornerRadius: 10,
+                }
+              }
+            }
+          });
+        } else {
+          splitContainer.style.display = 'none';
+          splitEmpty.style.display = 'flex';
+        }
+
+        // 7. Latest Failures Table
+        const failuresSkeleton = document.getElementById('failuresSkeleton');
+        const failuresTableWrap = document.getElementById('failuresTableWrap');
+        const failuresTbody = document.getElementById('failuresTableBody');
+        const failuresBadge = document.getElementById('failuresBadge');
+        const failuresEmpty = document.getElementById('failuresEmptyState');
+
+        failuresSkeleton.style.display = 'none';
+        const failures = data.failures || [];
+        if (failures.length > 0) {
+          failuresTableWrap.style.display = 'block';
+          failuresEmpty.setAttribute('style', 'display:none !important;');
+          failuresBadge.textContent = `${failures.length} failure${failures.length === 1 ? '' : 's'}`;
+          failuresBadge.style.display = 'inline-block';
+
+          let rowsHtml = '';
+          failures.forEach(f => {
+            const stepHtml = f.failed_step !== null && f.failed_step !== undefined
+              ? `<span class="badge bg-light border" style="color:var(--brick); border-color:var(--brick-soft)!important; font-size:.78rem;">Step ${f.failed_step}</span>`
+              : '—';
+
+            rowsHtml += `
+              <tr>
+                <td>
+                  <a href="/reports?run_id=${f.run_id}" class="text-decoration-none">
+                    <span class="badge-status badge-failed">Run ${f.run_id}</span>
+                  </a>
+                </td>
+                <td>
+                  <span class="fw-semibold" style="color:var(--navy);">${escapeHtml(f.test_case_id)}</span>
+                  <span class="text-muted ms-1" style="font-size:.82rem;">${escapeHtml(f.test_case_name || '')}</span>
+                </td>
+                <td>${stepHtml}</td>
+                <td style="max-width:320px;">
+                  <span class="text-muted" style="font-size:.82rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">
+                    ${escapeHtml(f.error_message || '—')}
+                  </span>
+                </td>
+                <td class="text-nowrap text-muted" style="font-size:.82rem;">
+                  <i class="bi bi-clock me-1"></i>${formatIsoDate(f.created_at_iso)}
+                </td>
+              </tr>
+            `;
+          });
+          failuresTbody.innerHTML = rowsHtml;
+        } else {
+          failuresTableWrap.style.display = 'none';
+          failuresBadge.style.display = 'none';
+          failuresEmpty.setAttribute('style', 'display:flex !important;');
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load dashboard data:', err);
+      })
+      .finally(() => {
+        if (window.finishProgressBar) window.finishProgressBar();
+      });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Kick off immediate background fetch
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadDashboardData);
+  } else {
+    loadDashboardData();
+  }
+</script>
+{% endblock %}

@@ -18,6 +18,55 @@ def _absolute(base_url, target):
     return base_url.rstrip("/") + "/" + target.lstrip("/")
 
 
+def _wait_for_settled(page, wait_ms=0):
+    """Wait for Oracle ADF PPR requests, animations, and busy glass panes to complete."""
+    if wait_ms > 0:
+        page.wait_for_timeout(wait_ms)
+    try:
+        page.wait_for_function(
+            """() => {
+                try {
+                    if (window.AdfPage && window.AdfPage.PAGE) {
+                        if (typeof window.AdfPage.PAGE.isSynchronized === 'function') {
+                            return window.AdfPage.PAGE.isSynchronized();
+                        }
+                    }
+                } catch (e) {}
+                return true;
+            }""",
+            timeout=10000,
+        )
+    except Exception:
+        pass
+    try:
+        page.wait_for_selector(
+            ".AFBlockingGlassPane, [id$='::busy'], [id$='::BusyPopup'], [class*='BusyPane'], .af_processingIndicator",
+            state="hidden",
+            timeout=10000,
+        )
+    except Exception:
+        pass
+
+
+def _resolve_editable(locator):
+    """If locator points to a label or container instead of an input, resolve the associated control."""
+    try:
+        tag = locator.evaluate("el => el.tagName.toLowerCase()")
+        if tag in ("input", "textarea", "select") or locator.evaluate("el => el.isContentEditable"):
+            return locator
+        target_id = locator.evaluate("el => el.htmlFor || (el.closest('label') && el.closest('label').htmlFor) || ''")
+        if target_id:
+            candidate = locator.page.locator(f"#{target_id}").filter(visible=True)
+            if candidate.count() > 0:
+                return candidate.first
+        nested = locator.locator("input, textarea, select").filter(visible=True)
+        if nested.count() > 0:
+            return nested.first
+    except Exception:
+        pass
+    return locator
+
+
 def execute(page, base_url, plan, timeout_ms=5000):
     """Run one plan and return its Outcome."""
     if not plan.ok:
@@ -31,11 +80,14 @@ def execute(page, base_url, plan, timeout_ms=5000):
     if plan.kind == "check":
         return evaluate_check(page, plan, timeout_ms)
 
+    _wait_for_settled(page, 0)
+
     try:
         if plan.kind == "navigate":
             invoke(page, spec, value=_absolute(base_url, plan.target),
                    timeout=max(timeout_ms, NAV_TIMEOUT_MS),
                    wait_until="domcontentloaded")
+            _wait_for_settled(page, 500)
             return Outcome(PASSED)
         if plan.kind == "key":
             invoke(page.keyboard, spec, value=plan.value)
@@ -55,10 +107,51 @@ def execute(page, base_url, plan, timeout_ms=5000):
     options = {"timeout": timeout_ms}
     if plan.expect:  # waits: visible or hidden
         options["state"] = plan.expect
+
+    target_locator = (
+        _resolve_editable(found.locator)
+        if plan.kind == "action" and spec.name in ("fill", "type", "press_sequentially", "clear")
+        else found.locator
+    )
+
     try:
-        invoke(found.locator, spec, value=plan.value or None, **options)
+        invoke(target_locator, spec, value=plan.value or None, **options)
+        if spec.name == "select_option":
+            _wait_for_settled(page, 600)
     except Exception as exc:
+        if spec.name == "select_option" and "not a <select> element" in str(exc).lower():
+            try:
+                target_locator.click(timeout=timeout_ms)
+                page.wait_for_timeout(350)
+                opt = page.locator(
+                    f'[role="option"]:has-text("{plan.value}"), tr:has-text("{plan.value}"), li:has-text("{plan.value}"), [title="{plan.value}" i]'
+                ).filter(visible=True).first
+                if opt.count() > 0:
+                    opt.click(timeout=timeout_ms)
+                else:
+                    page.get_by_text(plan.value, exact=True).click(timeout=timeout_ms)
+                _wait_for_settled(page, 600)
+                return Outcome(PASSED)
+            except Exception as inner_exc:
+                return Outcome(ERROR, reason=f"Custom dropdown select failed: {first_line(inner_exc)}")
         return Outcome(ERROR, reason=first_line(exc))
+
+    if spec.name in ("fill", "type", "press_sequentially") and plan.value:
+        page.wait_for_timeout(150)
+        try:
+            curr = target_locator.input_value()
+            if curr != plan.value:
+                _wait_for_settled(page, 400)
+                refound = discover(page, plan.target, timeout_ms)
+                if refound.status == FOUND:
+                    re_target = _resolve_editable(refound.locator)
+                    re_target.fill(plan.value)
+        except Exception:
+            pass
+
+    if spec.name == "click" and any(w in plan.target.lower() for w in ("next", "submit", "save", "continue")):
+        _wait_for_settled(page, 500)
+
     return Outcome(PASSED)
 
 

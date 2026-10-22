@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}Start Run{% endblock %}
+{% set active_page = 'start_run' %}
+
+{% block content %}
+<div class="row justify-content-center fade-in fade-in-2">
+  <div class="col-lg-8 col-xl-7">
+    <div class="panel">
+
+      <!-- Header -->
+      <div class="d-flex align-items-center gap-3 mb-4">
+        <div style="width:48px; height:48px; border-radius:14px; background: linear-gradient(135deg, var(--navy), var(--navy-soft));
+                    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+                    box-shadow: 0 4px 12px rgba(31,42,68,.25);">
+          <i class="bi bi-play-fill" style="font-size:1.3rem; color:var(--gold-light);"></i>
+        </div>
+        <div>
+          <p class="section-title mb-0">Start a Run</p>
+          <p class="section-hint mb-0">Configure and launch the test worker</p>
+        </div>
+      </div>
+
+      <hr class="verity-divider">
+
+      <!-- ── Empty state (shown if no enabled cases) ── -->
+      <div id="noCasesState" class="text-center py-4" style="display:none;">
+        <div style="width:64px; height:64px; border-radius:18px; background:var(--neutral-soft);
+                    display:flex; align-items:center; justify-content:center; margin:0 auto 16px;">
+          <i class="bi bi-collection-play" style="font-size:1.8rem; color:var(--muted-light);"></i>
+        </div>
+        <p class="fw-semibold mb-2" style="color:var(--navy);">No enabled test cases</p>
+        <p class="text-muted mb-4" style="font-size:.88rem;">Enable some in Test Cases, then come back.</p>
+        <a href="{{ url_for('test_cases') }}" class="btn btn-verity px-4">
+          <i class="bi bi-list-check me-2"></i>Go to Test Cases
+        </a>
+      </div>
+
+      <form method="post" id="startRunForm" novalidate>
+
+        <!-- ── Step 1: URL ── -->
+        <div class="mb-4">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="d-flex align-items-center justify-content-center fw-bold"
+                  style="width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff; font-size:.72rem; flex-shrink:0;">1</span>
+            <label for="app_url" class="form-label mb-0">Application URL</label>
+          </div>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-globe2"></i></span>
+            <input type="url" id="app_url" name="app_url" class="form-control"
+                   placeholder="https://your-app.example.com" required>
+            <div class="invalid-feedback">Please enter a URL starting with http:// or https://</div>
+          </div>
+        </div>
+
+        <!-- ── Step 2: Login ── -->
+        <div class="mb-4">
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="d-flex align-items-center justify-content-center fw-bold"
+                  style="width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff; font-size:.72rem; flex-shrink:0;">2</span>
+            <span class="form-label mb-0">Authentication</span>
+          </div>
+          <div class="p-3" style="background:var(--ivory); border:1px solid var(--line-soft); border-radius:var(--radius-sm);">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="needs_login"
+                     name="needs_login" value="1" onchange="toggleLogin(this.checked)">
+              <label class="form-check-label fw-semibold" for="needs_login" style="color:var(--navy);">
+                <i class="bi bi-shield-lock me-1" style="color:var(--gold);"></i>
+                This app requires login
+              </label>
+            </div>
+
+            <div id="loginFields" style="display:none; margin-top:16px;">
+              <div class="row g-3">
+                <div class="col-sm-6">
+                  <label for="login_user" class="form-label">Username</label>
+                  <input type="text" id="login_user" name="login_user" class="form-control"
+                         autocomplete="username" placeholder="your@email.com">
+                </div>
+                <div class="col-sm-6">
+                  <label for="login_pass" class="form-label">Password</label>
+                  <div class="input-group">
+                    <input type="password" id="login_pass" name="login_pass" class="form-control"
+                           autocomplete="current-password" placeholder="••••••••">
+                    <button class="input-group-text" type="button" onclick="togglePwd()" title="Show/hide">
+                      <i class="bi bi-eye" id="eyeIcon"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <p class="small text-muted mt-2 mb-0">
+                <i class="bi bi-lock me-1"></i>Credentials are used only for this run and are never saved.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Step 3: Test cases ── -->
+        <div class="mb-5">
+          <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+            <div class="d-flex align-items-center gap-2">
+              <span class="d-flex align-items-center justify-content-center fw-bold"
+                    style="width:22px; height:22px; border-radius:50%; background:var(--navy); color:#fff; font-size:.72rem; flex-shrink:0;">3</span>
+              <span class="form-label mb-0">Test cases to run</span>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-verity" onclick="selectAll(true)">
+                <i class="bi bi-check2-all me-1"></i>All
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-verity" onclick="selectAll(false)">
+                <i class="bi bi-x-lg me-1"></i>None
+              </button>
+            </div>
+          </div>
+
+          <div class="border rounded-3 overflow-hidden" style="border-color:var(--line-soft)!important;">
+            <!-- Header bar -->
+            <div class="px-3 py-2 d-flex align-items-center gap-2"
+                 style="background:var(--navy); border-bottom:1px solid rgba(255,255,255,.1);">
+              <i class="bi bi-list-check text-white opacity-75" style="font-size:.9rem;"></i>
+              <span id="casesHeaderLabel" style="font-size:.75rem; color:rgba(255,255,255,.75); text-transform:uppercase; letter-spacing:.8px; font-weight:600;">
+                Loading cases…
+              </span>
+              <span class="ms-auto" id="selectedCount"
+                    style="font-size:.75rem; color:var(--gold-light); font-weight:600;">
+                0 selected
+              </span>
+            </div>
+
+            <!-- Skeleton loading state for cases -->
+            <div id="casesListSkeleton" style="background:var(--ivory); padding:16px;">
+              <div class="skeleton mb-3" style="width:100%; height:32px; border-radius:6px;"></div>
+              <div class="skeleton mb-3" style="width:90%; height:32px; border-radius:6px;"></div>
+              <div class="skeleton" style="width:95%; height:32px; border-radius:6px;"></div>
+            </div>
+
+            <!-- Real cases list -->
+            <div id="casesListContainer" style="max-height:280px; overflow-y:auto; background:var(--ivory); display:none;">
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Submit ── -->
+        <button type="submit" class="btn btn-verity w-100 py-3" id="startBtn"
+                style="font-size:1rem; letter-spacing:.3px;">
+          <i class="bi bi-play-fill me-2"></i>Start Run
+        </button>
+
+      </form>
+
+    </div><!-- /panel -->
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function toggleLogin(show) {
+    const f = document.getElementById('loginFields');
+    f.style.display = show ? 'block' : 'none';
+    ['login_user','login_pass'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.required = show;
+    });
+  }
+
+  function togglePwd() {
+    const p = document.getElementById('login_pass');
+    const i = document.getElementById('eyeIcon');
+    if (p.type === 'password') { p.type = 'text'; i.className = 'bi bi-eye-slash'; }
+    else { p.type = 'password'; i.className = 'bi bi-eye'; }
+  }
+
+  function selectAll(checked) {
+    document.querySelectorAll('.case-check').forEach(c => c.checked = checked);
+    updateSelectedCount();
+  }
+
+  function updateSelectedCount() {
+    const total   = document.querySelectorAll('.case-check').length;
+    const checked = document.querySelectorAll('.case-check:checked').length;
+    const el = document.getElementById('selectedCount');
+    if (el) el.textContent = checked + ' selected';
+  }
+
+  function loadStartRunCases() {
+    if (window.startProgressBar) window.startProgressBar();
+
+    fetch('/api/start-run/cases')
+      .then(res => res.json())
+      .then(data => {
+        const cases = data.cases || [];
+        const skeleton = document.getElementById('casesListSkeleton');
+        const container = document.getElementById('casesListContainer');
+        const form = document.getElementById('startRunForm');
+        const noCases = document.getElementById('noCasesState');
+
+        skeleton.style.display = 'none';
+
+        if (cases.length === 0) {
+          form.style.display = 'none';
+          noCases.style.display = 'block';
+          return;
+        }
+
+        form.style.display = 'block';
+        noCases.style.display = 'none';
+
+        document.getElementById('casesHeaderLabel').textContent =
+          `${cases.length} enabled case${cases.length !== 1 ? 's' : ''}`;
+
+        let html = '';
+        cases.forEach(c => {
+          html += `
+            <label class="d-flex align-items-start gap-3 px-3 py-2 case-label"
+                   style="cursor:pointer; border-bottom:1px solid var(--line-soft);"
+                   for="case_${escapeHtml(c.test_case_id)}">
+              <input class="form-check-input case-check flex-shrink-0 mt-1" type="checkbox"
+                     name="test_cases" value="${escapeHtml(c.test_case_id)}"
+                     id="case_${escapeHtml(c.test_case_id)}" checked>
+              <div class="flex-grow-1">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  <code style="font-size:.78rem; background:rgba(31,42,68,.08); padding:2px 7px; border-radius:5px; color:var(--navy);">${escapeHtml(c.test_case_id)}</code>
+                  <span class="fw-semibold" style="font-size:.88rem; color:var(--navy);">${escapeHtml(c.test_case_name)}</span>
+                </div>
+                <p class="mb-0 mt-1" style="font-size:.78rem; color:var(--muted);"><code>${escapeHtml(c.page || '')}</code></p>
+              </div>
+            </label>
+          `;
+        });
+
+        container.innerHTML = html;
+        container.style.display = 'block';
+
+        updateSelectedCount();
+
+        document.querySelectorAll('.case-check').forEach(c => c.addEventListener('change', updateSelectedCount));
+        document.querySelectorAll('.case-label').forEach(lbl => {
+          lbl.addEventListener('mouseenter', () => lbl.style.background = 'var(--gold-faint)');
+          lbl.addEventListener('mouseleave', () => lbl.style.background = '');
+        });
+      })
+      .catch(err => {
+        console.error('Error fetching cases for start-run:', err);
+      })
+      .finally(() => {
+        if (window.finishProgressBar) window.finishProgressBar();
+      });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  const form = document.getElementById('startRunForm');
+  const startBtn = document.getElementById('startBtn');
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      const url = document.getElementById('app_url').value.trim();
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        e.preventDefault();
+        document.getElementById('app_url').classList.add('is-invalid');
+        return;
+      }
+      const checked = document.querySelectorAll('.case-check:checked');
+      if (checked.length === 0) {
+        e.preventDefault();
+        alert('Select at least one test case to run.');
+        return;
+      }
+      startBtn.disabled = true;
+      startBtn.innerHTML = '<span class="btn-spinner"></span>Queuing run…';
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadStartRunCases);
+  } else {
+    loadStartRunCases();
+  }
+</script>
+{% endblock %}
