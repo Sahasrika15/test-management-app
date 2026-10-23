@@ -12,7 +12,11 @@ STEP_PATTERNS = [
     ("select", re.compile(r"^Select (?P<value>.+) from the (?P<field>.+) list$")),
     ("check_text", re.compile(r"^Check that (?P<text>.+) is displayed$")),
     ("wait_for", re.compile(r"^Wait for (?P<text>.+)$")),
-        ("cell", re.compile(r"^Enter (?P<value>.+) in the (?P<day>MON|TUE|WED|THU|FRI|SAT|SUN) cell of (?P<row>.+)$")),
+    ("cell", re.compile(r"^Enter (?P<value>.+) in the (?P<day>MON|TUE|WED|THU|FRI|SAT|SUN) cell of (?P<row>.+)$")),
+    ("scroll_down", re.compile(r"^Scroll down$")),
+    ("scroll_into_view", re.compile(
+        r"^Scroll the (?P<name>.+) into view$"
+    )),
 ]
 
 

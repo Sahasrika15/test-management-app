@@ -23,6 +23,7 @@ from core.importer import import_csv_text
 from core.runs import (
     create_run,
     get_dashboard_stats,
+    get_last_run_label,
     get_result_video,
     get_run_results,
     list_runs,
@@ -31,6 +32,14 @@ from core.test_cases import list_sources, list_test_cases, set_enabled
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "verity-dev-secret-change-me")
+@app.context_processor
+def inject_globals():
+    """Make last_run_label available to every template, including base.html."""
+    try:
+        label = get_last_run_label()
+    except Exception:
+        label = "No runs yet"
+    return {"last_run_label": label}
 
 TEMPLATE_CSV = (
     "test_case_id,test_case_name,page,steps,expected_result,enabled\n"

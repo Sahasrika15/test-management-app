@@ -22,6 +22,9 @@ SCREEN_DIR = Path("artifacts/screenshots")
 STEP_TIMEOUT_MS = int(os.getenv("STEP_TIMEOUT_MS", "5000"))
 STEP_PAUSE_MS = int(os.getenv("STEP_PAUSE_MS", "700"))
 VIDEO_TAIL_MS = int(os.getenv("VIDEO_TAIL_MS", "3000"))
+# Typing delay per character (clamped 100-200 ms) and pause after each field entry.
+TYPING_DELAY_MS = max(100, min(200, int(os.getenv("TYPING_DELAY_MS", "150"))))
+POST_FILL_PAUSE_MS = int(os.getenv("POST_FILL_PAUSE_MS", "1000"))
 LOGIN_PREFIX = "LOGIN"
 PLACEHOLDER = re.compile(r"\$\{(\w+)\}")
 
@@ -110,7 +113,12 @@ def run_test(browser, base_url, run_id, row, login_state=None, session_id=None, 
     video = page.video
     started = time.time()
 
-    outcome = run_plans(page, base_url, plans, STEP_TIMEOUT_MS, pause_ms=STEP_PAUSE_MS)
+    outcome = run_plans(
+        page, base_url, plans, STEP_TIMEOUT_MS,
+        pause_ms=STEP_PAUSE_MS,
+        typing_delay_ms=TYPING_DELAY_MS,
+        post_fill_pause_ms=POST_FILL_PAUSE_MS,
+    )
 
     status, failed_step, error = outcome.status, None, None
     if outcome.status != PASSED:

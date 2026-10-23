@@ -36,6 +36,10 @@ SEARCH_OWNERS = ("locator", "page", "keyboard", "mouse")
 # Parameter names that carry a value to type, select, upload, or press.
 VALUE_PARAMS = {"value", "values", "text", "files", "key"}
 
+SCROLL_INTO_VIEW = re.compile(
+    r"^scroll\s+(?:the\s+)?(?P<target>.+?)\s+into\s+view$",
+    re.IGNORECASE,
+)
 SEPARATOR = re.compile(r"\s+(?:in|into|from|to|as|with)\s+", re.IGNORECASE)
 CHECK_LEAD = re.compile(r"^(?:check|verify|confirm)\s+that\b", re.IGNORECASE)
 EXPECTATION = re.compile(
@@ -281,6 +285,18 @@ def interpret(step):
     match = WAIT_FOR.match(text)
     if match:
         return _interpret_wait_for(step, match)
+    match = SCROLL_INTO_VIEW.match(text)
+    if match:
+        target = _clean_target(match.group("target"))
+        try:
+            spec = _spec(
+                "scroll_into_view_if_needed",
+                owners=("locator",),
+            )
+        except OperationError as exc:
+            return _review(step, str(exc))
+
+        return _build(step, spec, target)
     match = KEY_PRESS.match(text)
     if match and _normalize(match.group("key")) in KEYS:
         return _ok(step, kind="key", operation="keyboard.press", value=KEYS[_normalize(match.group("key"))])

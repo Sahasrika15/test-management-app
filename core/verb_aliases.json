@@ -16,7 +16,8 @@
     "attach": "set_input_files",
     "go to": "goto",
     "navigate to": "goto",
-    "visit": "goto"
+    "visit": "goto",
+    "scroll into view": "scroll_into_view_if_needed"
   },
   "states": {
     "displayed": "visible",
@@ -55,7 +56,21 @@
     "arrow right": "ArrowRight"
   },
   "role_words": [
-    "button", "link", "icon", "box", "checkbox", "field",
-    "input", "list", "dropdown", "menu", "tab", "option"
+    "button",
+    "link",
+    "icon",
+    "box",
+    "checkbox",
+    "field",
+    "input",
+    "list",
+    "dropdown",
+    "menu",
+    "tab",
+    "option",
+    "page",
+    "section",
+    "header",
+    "heading"
   ]
 }

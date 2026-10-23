@@ -256,3 +256,18 @@ def claim_run(run_id):
     with get_engine().begin() as conn:
         row = conn.execute(sql, {"run_id": run_id}).mappings().first()
     return dict(row) if row else None
+
+def get_last_run_label():
+    """Short label for the header badge: time of the most recent run that has results."""
+    sql = text("""
+        select e.created_at
+        from executions e
+        where exists (select 1 from test_results r where r.execution_id = e.id)
+        order by e.id desc
+        limit 1
+    """)
+    with get_engine().connect() as conn:
+        row = conn.execute(sql).first()
+    if not row or row[0] is None:
+        return "No runs yet"
+    return f"Last run: {row[0]:%d %b, %H:%M}"

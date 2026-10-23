@@ -662,6 +662,50 @@
       .metric-value { font-size: 2rem; }
       .metric-card  { padding: 16px 18px; }
     }
+
+    /* ══════════════════════════════════════════════
+   CHART BOXES
+══════════════════════════════════════════════ */
+.chart-panel { display: flex; flex-direction: column; }
+.chart-body {
+  position: relative;
+  height: 240px;
+  width: 100%;
+}
+.chart-skeleton {
+  height: 240px;
+  width: 100%;
+  border-radius: 12px;
+}
+.chart-empty {
+  height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.chart-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.chart-center-value {
+  font-family: var(--serif);
+  font-size: 1.9rem;
+  color: var(--navy);
+  line-height: 1;
+}
+.chart-center-label {
+  font-size: .72rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+}
   </style>
 </head>
 <body>
@@ -679,7 +723,7 @@
     </div>
     <span class="hero-badge" id="headerLastRunBadge">
       <i class="bi bi-clock-history me-1"></i>
-      <span id="headerLastRunText">{{ last_run_label | default('Checking…') }}</span>
+      <span id="headerLastRunText">{{ last_run_label }}</span>
     </span>
   </header>
 
