@@ -5,6 +5,8 @@ and, for element targets, the Phase D discovery (exactly one visible element).
 Checks are handed to the assertion engine. A test's plans are all validated before
 any of them run, so an unknown step never leaves a half-run test behind.
 """
+import re
+
 from core.action_registry import OperationError, lookup
 from worker.assertion_engine import evaluate_check
 from worker.dom_discovery import AMBIGUOUS, FOUND, discover
@@ -263,35 +265,72 @@ def execute(page, base_url, plan, timeout_ms=5000,
         invoke(target_locator, spec, value=plan.value or None, **options)
         if spec.name == "select_option":
             _wait_for_settled(page, 600)
+    
     except Exception as exc:
         if spec.name == "select_option" and "not a <select> element" in str(exc).lower():
             try:
+                # Open the Oracle ADF dropdown.
                 target_locator.click(timeout=timeout_ms)
-                page.wait_for_timeout(350)
-                opt = page.locator(
-                    f'[role="option"]:has-text("{plan.value}"), '
-                    f'tr:has-text("{plan.value}"), '
-                    f'li:has-text("{plan.value}"), '
-                    f'[title="{plan.value}" i]'
-                ).filter(visible=True).first
-                if opt.count() > 0:
-                    opt.click(timeout=timeout_ms)
-                else:
-                    page.get_by_text(plan.value, exact=True).click(timeout=timeout_ms)
-                _wait_for_settled(page, 600)
+
+                # Allow Oracle Fusion to finish loading the popup/options.
+                _wait_for_settled(page, 1000)
+
+                # Wait for the exact option to appear, rather than checking only once.
+                items = page.get_by_text(plan.value, exact=True).filter(visible=True)
+
+                try:
+                    items.first.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    # Some ADF dropdowns render options as list items or table cells.
+                    items = (
+                        page.locator("li, [role='option'], td")
+                        .filter(
+                            has_text=re.compile(
+                                rf"^\s*{re.escape(plan.value)}\s*$"
+                            )
+                        )
+                        .filter(visible=True)
+                    )
+                    items.first.wait_for(state="visible", timeout=10000)
+
+                # Recheck the matches after waiting for the popup to render.
+                if items.count() == 0:
+                    raise RuntimeError(
+                        f"Option '{plan.value}' was not found after waiting "
+                        "for the dropdown to load."
+                    )
+
+                items.last.click(timeout=timeout_ms)
+                _wait_for_settled(page, 1000)
                 return Outcome(PASSED)
+
             except Exception as inner_exc:
-                return Outcome(ERROR, reason=f"Custom dropdown select failed: {first_line(inner_exc)}")
+                # Capture useful diagnostic information in the test result.
+                try:
+                    page.screenshot(
+                        path="artifacts/logs/legal_employer_dropdown_error.png",
+                        full_page=True,
+                    )
+                except Exception:
+                    pass
+
+                return Outcome(
+                    ERROR,
+                    reason=(
+                        f"Could not select '{plan.value}' from the dropdown: "
+                        f"{first_line(inner_exc)}. "
+                        "Check the screenshot and confirm that the option "
+                        "actually appears in the open dropdown."
+                    ),
+                )
+
         return Outcome(ERROR, reason=first_line(exc))
 
-    if spec.name == "click" and any(
-        w in plan.target.lower() for w in ("next", "submit", "save", "continue")
-    ):
-        page.wait_for_timeout(800)
-        _wait_for_settled(page, 1000)
+    if spec.name == "click":
+        page.wait_for_timeout(1500)
+        _wait_for_settled(page, 1500)
 
     return Outcome(PASSED)
-
 
 def _absolute(base_url, target):
     if target.lower().startswith("http"):
@@ -316,6 +355,4 @@ def run_plans(page, base_url, plans, timeout_ms=5000, pause_ms=0,
             return Outcome(outcome.status, step=number, reason=outcome.reason)
         if pause_ms:
             page.wait_for_timeout(pause_ms)
-    return Outcome(PASSED)
-
     return Outcome(PASSED)

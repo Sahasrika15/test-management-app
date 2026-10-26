@@ -10,6 +10,7 @@ from core.csv_import import validate_csv_text
 from core.importer import import_csv_text
 from core.runs import create_run, get_dashboard_stats, get_result_video, get_run_results, list_runs
 from core.test_cases import list_sources, list_test_cases, set_enabled
+from core.employees import expand_batch, list_batches, save_batch, validate_employee_csv
 
 st.set_page_config(page_title="Verity - Plain words. Proven results.", layout="wide")
 
@@ -199,15 +200,20 @@ def confirm_import(content, source_name):
     st.session_state["view_source_box"] = source_name
     st.session_state["flash"] = f"Saved {saved} test case(s) from {source_name}."
 
+def confirm_employee_batch(rows, name):
+    batch_id = save_batch(name, rows)
+    st.session_state["flash"] = f"Saved employee batch {batch_id} with {len(rows)} people."
 
 def start_run():
     app_url = st.session_state.get("start_url", "").strip()
     source = st.session_state.get("view_source_box")
-    enabled = [c["test_case_id"] for c in cached_list_test_cases(source) if c["enabled"]]
+    all_cases = {c["test_case_id"]: c for c in list_test_cases(source)}
+    enabled = [cid for cid, c in all_cases.items() if c["enabled"]]
     selected = [c for c in st.session_state.get("start_cases", enabled) if c in enabled]
     needs_login = bool(st.session_state.get("needs_login"))
     username = st.session_state.get("login_user", "").strip()
     password = st.session_state.get("login_pass", "")
+    batch_id = st.session_state.get("batch_choice")
 
     if needs_login:
         if not username or not password:
@@ -220,14 +226,33 @@ def start_run():
             )
             return
 
+    if batch_id is not None:
+        logins = [c for c in selected if c.upper().startswith("LOGIN")]
+        templates = [c for c in selected if not c.upper().startswith("LOGIN")]
+        if not templates:
+            st.session_state["start_error"] = "Select the test case to repeat for each person, not only the LOGIN row."
+            return
+        try:
+            generated = [new_id for t in templates for new_id in expand_batch(batch_id, t)]
+        except ValueError as error:
+            st.session_state["start_error"] = str(error)
+            return
+        selected = logins + generated
+    else:
+        needs_details = [c for c in selected if "${" in all_cases[c]["steps"]]
+        if needs_details:
+            st.session_state["start_error"] = (
+                f"{', '.join(needs_details)} need employee details. Choose an employee batch above, "
+                "or deselect them."
+            )
+            return
+
     try:
         run_id, queued = create_run(app_url, selected)
-        st.cache_data.clear()
     except ValueError as error:
         st.session_state["start_error"] = str(error)
         return
 
-    # Credentials go into this worker's environment only. They are not saved to the database or a file.
     env = dict(os.environ)
     if needs_login:
         env["APP_USER"] = username
@@ -531,7 +556,28 @@ if page == "Upload CSV":
                 st.error("Nothing was saved. Fix these rows and upload again:")
                 for error in result.errors:
                     st.markdown(f"- {error}")
-
+    with st.container(border=True):
+        st.markdown('<p class="tm-section">Upload employee batch</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="tm-hint">Each row is one person. A run repeats the selected test for each person '
+            "using their details. Use dummy data only.</p>",
+            unsafe_allow_html=True,
+        )
+        emp_file = st.file_uploader("Choose an employee CSV", type="csv", key="emp_upload")
+        if emp_file is not None:
+            emp_rows, emp_errors = validate_employee_csv(emp_file.getvalue().decode("utf-8-sig"))
+            if emp_errors:
+                st.error("Nothing was saved. Fix these rows and upload again:")
+                for e in emp_errors:
+                    st.markdown(f"- {e}")
+            else:
+                st.success(f"{len(emp_rows)} people ready to save.")
+                st.dataframe(pd.DataFrame(emp_rows), hide_index=True, width="stretch")
+                st.button(
+                    "Save employee batch",
+                    on_click=confirm_employee_batch,
+                    args=(emp_rows, emp_file.name),
+                )
 
 if page == "Test cases":
     with st.container(border=True):
@@ -586,7 +632,7 @@ if page == "Start run":
     with st.container(border=True):
         st.markdown('<p class="tm-section">Start a run</p>', unsafe_allow_html=True)
         source = st.session_state.get("view_source_box")
-        cases = cached_list_test_cases(source) if source else cached_list_test_cases()
+        cases = list_test_cases(source) if source else list_test_cases()
         enabled_ids = [c["test_case_id"] for c in cases if c["enabled"]]
         st.text_input(
             "Application URL",
@@ -599,10 +645,25 @@ if page == "Start run":
             c1.text_input("Username", key="login_user")
             c2.text_input("Password", type="password", key="login_pass")
             st.caption("The LOGIN test case in the CSV signs in with these values for this run only.")
+
+        batches = list_batches()
+        batch_labels = {b["id"]: f"Batch {b['id']}  {b['name']}  ({b['total']} people)" for b in batches}
+        st.selectbox(
+            "Employee batch",
+            [None] + list(batch_labels),
+            format_func=lambda i: "None: run the test cases once" if i is None else batch_labels[i],
+            key="batch_choice",
+        )
+
         if not enabled_ids:
             st.info("No enabled test cases. Turn some on in the Test cases tab.")
         else:
             st.multiselect("Test cases to run", enabled_ids, default=enabled_ids, key="start_cases")
+            if st.session_state.get("batch_choice") is not None:
+                st.caption(
+                    "Each person in the batch gets one run of every selected test case, "
+                    "except LOGIN rows, which run once."
+                )
             st.button("Start run", on_click=start_run)
         error = st.session_state.pop("start_error", None)
         if error:

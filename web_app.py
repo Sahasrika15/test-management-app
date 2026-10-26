@@ -29,6 +29,7 @@ from core.runs import (
     list_runs,
 )
 from core.test_cases import list_sources, list_test_cases, set_enabled
+from core.employees import expand_batch, list_batches, save_batch, validate_employee_csv
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET", "verity-dev-secret-change-me")
@@ -192,37 +193,56 @@ def api_test_cases():
 
 @app.route("/start-run", methods=["GET", "POST"])
 def start_run():
-    if request.method == "POST":
-        app_url = request.form.get("app_url", "").strip()
-        needs_login = bool(request.form.get("needs_login"))
-        username = request.form.get("login_user", "").strip()
-        password = request.form.get("login_pass", "")
-        selected = request.form.getlist("test_cases")
+    if request.method == "GET":
+        return render_template("start_run.html", batches=list_batches())
 
-        # validations
-        if needs_login:
-            if not username or not password:
-                flash("Enter the username and password, or turn off the login option.", "danger")
-                return redirect(url_for("start_run"))
-            if not any(c.upper().startswith("LOGIN") for c in selected):
-                flash(
-                    "Login is on, but no LOGIN test case is selected. "
-                    "Add a LOGIN row to the CSV and select it.",
-                    "danger",
-                )
-                return redirect(url_for("start_run"))
+    app_url = request.form.get("app_url", "").strip()
+    needs_login = bool(request.form.get("needs_login"))
+    username = request.form.get("login_user", "").strip()
+    password = request.form.get("login_pass", "")
+    selected = request.form.getlist("test_cases")
+    batch_raw = request.form.get("batch_id", "")
+    batch_id = int(batch_raw) if batch_raw else None
 
+    if needs_login:
+        if not username or not password:
+            flash("Enter the username and password, or turn off the login option.", "danger")
+            return redirect(url_for("start_run"))
+        if not any(c.upper().startswith("LOGIN") for c in selected):
+            flash("Login is on, but no LOGIN test case is selected.", "danger")
+            return redirect(url_for("start_run"))
+
+    if batch_id is not None:
+        logins = [c for c in selected if c.upper().startswith("LOGIN")]
+        templates = [c for c in selected if not c.upper().startswith("LOGIN")]
+        if not templates:
+            flash("Select the test case to repeat for each person, not only the LOGIN row.", "danger")
+            return redirect(url_for("start_run"))
         try:
-            run_id, queued = create_run(app_url, selected)
+            generated = [new_id for t in templates for new_id in expand_batch(batch_id, t)]
         except ValueError as e:
             flash(str(e), "danger")
             return redirect(url_for("start_run"))
+        selected = logins + generated
+    else:
+        all_cases = {c["test_case_id"]: c for c in list_test_cases(session.get("view_source"))}
+        needs_details = [c for c in selected if "${" in all_cases.get(c, {}).get("steps", "")]
+        if needs_details:
+            flash(f"{', '.join(needs_details)} need employee details. Choose a batch or deselect them.", "danger")
+            return redirect(url_for("start_run"))
 
-        _spawn_worker(run_id, needs_login, username, password)
-        flash(f"Run {run_id} started with {queued} test(s). Results appear as each test finishes.", "success")
-        return redirect(url_for("reports", run_id=run_id))
+    try:
+        run_id, queued = create_run(app_url, selected)
+    except ValueError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("start_run"))
 
-    return render_template("start_run.html")
+    if needs_login:
+        _spawn_worker(run_id, True, username, password)
+    else:
+        _spawn_worker(run_id, False, "", "")
+    flash(f"Run {run_id} started with {queued} test(s). Results appear as each test finishes.", "success")
+    return redirect(url_for("reports", run_id=run_id))
 
 
 @app.route("/api/start-run/cases")
@@ -325,6 +345,20 @@ def video(result_id):
     resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
 
+@app.route("/upload-employees", methods=["POST"])
+def upload_employees():
+    f = request.files.get("emp_file")
+    if not f or not f.filename:
+        flash("No employee file selected.", "danger")
+        return redirect(url_for("upload_csv"))
+    rows, errors = validate_employee_csv(f.read().decode("utf-8-sig"))
+    if errors:
+        for e in errors[:10]:
+            flash(e, "danger")
+        return redirect(url_for("upload_csv"))
+    batch_id = save_batch(f.filename, rows)
+    flash(f"Saved employee batch {batch_id} with {len(rows)} people.", "success")
+    return redirect(url_for("upload_csv"))
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
